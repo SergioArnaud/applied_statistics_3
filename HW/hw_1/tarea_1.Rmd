@@ -1,0 +1,411 @@
+---
+title: "tarea_1"
+output:
+  html_document: default
+  pdf_document: default
+---
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(purrr)
+```
+
+
+\newpage
+
+1. Realizar calculos matriciales:
+
+    ```{r}
+    A = matrix( c(7,3,5,1,3,8), nrow=2, ncol=3)
+    B = matrix( c(11,12,-7,0,8,9), nrow=2, ncol=3)
+    # Matriz transpuesta de A se invierte (i,j) a (j,i)
+    t(A)
+    
+    # C=A-B se obtiene la matriz con elemento típico 
+    # (c)_ij = (a)_ij - (b)_ij
+    A-B
+    
+    # AB no es posible porque ncol(A) != nrow(B)
+    #A %*% B
+    
+    # A'A es posible (siempre, nrow(A) = nrow(A))
+    t(A) %*% A
+    
+    # C=A+B se obtiene la matriz con elemento típico 
+    # (c)_ij = (a)_ij + (b)_ij
+    A+B
+    
+    # A'B es posible nrow(A) = nrow(B)
+    t(A) %*% B
+    
+    # C = 17.3A se obtiene la matriz con elemento típico
+    # (c)_ij = 17.3(a)_ij
+    17.3*A
+    
+    # (1/19)B análogo al anterior
+    (1/19)*B
+    ```
+
+\newpage
+
+2. El archivo T01_06.txt en la sección de datos en Piazza contiene datos de un estudio sobre
+esclerosis múltiple. Dos estímulos visuales diferentes (S1 y S2) producen respuestas en el
+ojo izquierdo (L) y en el derecho (R) de sujetos, algunos de los cuales tenían esclerosis
+múltiple (MS).
+ 
+    + Hacer una gráfica de dispersión de puntos para x2 y x4 para el grupo de multiesclerosis. Comentar sobre la apariencia de la gráfica. Comencemos por leer el dataframe
+    
+    ```{r}
+      sclerosis_data <- read_table2('data/T01_06.txt',col_names = FALSE)
+      colnames(sclerosis_data) = c('Edad', 'Respuesta_S1', 'Diferencia_S1', 
+                             'Respuesta_S2', 'Diferencia_S2', 'Grupo')
+      
+     knitr::kable(head(sclerosis_data))
+    ```
+    
+    Y realizamos la gráfica:
+    
+    ```{r}
+        plot_info = filter(sclerosis_data, Grupo == 1) %>%
+        select(Respuesta_S1, Respuesta_S2)
+        ggplot(plot_info, aes(Respuesta_S1,Respuesta_S2)) +
+           geom_point() +
+            labs(y="Respuesta ambos ojos ante S2", x="Respuesta ambos ojos ante S1")
+    
+    ```
+    A primera vista, la gráfica nos permite observar una relación de linealidad entre las variables en cuestión, 
+    es decir, la gráfica nos lleva a pensar que la relación entra la respuesta de un paciente a el estímulo 1 está
+    directamente relacionadad (a partir de una relación lineal) con la respuesta a el estímulo 2.
+    
+    + Calcular $\overline{x}$, $S$, y $R$ para cada grupo por separado.
+    
+    Comencemos por obtener $\overline{x}$:
+    ```{r}
+       means = group_by(sclerosis_data, Grupo) %>% 
+                 summarise_all(mean)
+    
+      knitr::kable(head(means))
+      
+    ```
+    
+    
+    Ahora obtengamos $S$ y $R$:
+    ```{r}
+      grupo_0 = filter(sclerosis_data, Grupo==0) %>% 
+            select(-Grupo)
+
+      grupo_1 = filter(sclerosis_data, Grupo==1) %>% 
+            select(-Grupo)
+    
+      # S
+      knitr::kable(cov(grupo_1))
+      knitr::kable(cov(grupo_0))
+      
+      # R
+      knitr::kable(cor(grupo_1))
+      knitr::kable(cor(grupo_0))
+      
+      # O bien, para los del grupo 1 obtengamos S y R sin usar las funciones de R:
+      
+      #S
+      X <- as.matrix(grupo_1)
+      n <- nrow(X)
+      uno <- rep(1,n)
+      H<- diag(n)- uno %*% t(uno)/n
+      S <- round(t(X) %*% H %*% X/(n-1),2)
+      knitr::kable(data.frame(S))
+      
+      # R
+      D <- diag(apply(X,2,var))
+      R <- round(solve(D^0.5) %*% S %*% solve(D^0.5),3)
+      knitr::kable(data.frame(R))
+    ```
+    
+    + Hacer un scatterplot de todos los datos y comentar sobre las diferencias de cada par de variables en cada uno de los grupos.
+    
+    Comencemos por el grupo cero:
+    
+    ```{r}
+    ggpairs(grupo_0)
+    ```
+
+    Y con el grupo uno:
+    ```{r}
+    ggpairs(grupo_1)
+    ```
+    
+    Y sobre las diferencias entre cada par de variables podemos notar que: 
+       + Edad vs respuesta S1: en el grupo 1 parece que no existe relación alguna entra las variables mientras que en el grupo 0 parece que existe una pequeña relacion:
+       + Edad vs diferencia S1: en el grupo 0 la diferencia ante el estímulo 1 parece tomar valores mayores (pero sin alguna relación con la edad) mientras que los valores de la diferencia ante el estímulo 1 para los pacientes del grupo 1 siempre son bajos
+       + Respuesta S1 vs diferencia S1: Para los pacientes del grupo cero la respuesta S1 parece estar más concentrada alrededor de 140 t los valores de la diferencia se encuentran más dispersos mientras que en el grupo 1 pasa lo opuesto, los valores de la respuesta S1 están dispersos entre 130 y 235 pero los valores de la diferencia se encuentran más concentrados en valores bajos.
+       + Edad vs respuesta S2: parece que en ambos grupos no existe alguna relación visible en estas vairables.
+       + Respuesta S1 vs Respuesta S1: En ambos se puuede observar una relación lineal pero en el grupo 1 la dispersión es ligéramente menor
+       + Diferencia S1 vs respuesta S2: En el grupo cero ambas variables se encuentran dispersas mientras que en el grupo 2 parece haber una concentración más hacia valores pequeños en la variable de diferencia S2
+       + Diferencia S2 vs otras variables: para el grupo 0 parece no tener relación con niguna variable mientras que en el grupo 1 pareceróia existir una relación entre diferencia s1 y diferencia S2
+       
+\newpage
+3.  Comenzamos por cargar el dataset y ver la descripción:
+
+    ```{r}
+      data(iris3)
+      help(iris3)
+    ```
+
+    Ahora obtengamos la matrix $X$ , las medias, la matriz A y Sx
+
+    ```{r}
+    X = filter(iris, Species == 'setosa') %>% select(-Species)
+
+    means = apply(X,2,mean)
+    
+    aux = t(apply(X, 1, function(x) x-means)) %>%
+          apply(1, function(x) x%*%t(x)) %>%
+          data.frame()
+
+    aux = as.list(aux)
+                    
+    A = aux %>% map(function(x) matrix(x, nrow=4, ncol=4)) %>%
+          reduce(`+`)
+    
+    Sx <- 1/49*A
+    ```
+   
+    Ahora los eigenvectores y eigenvalores:
+    
+    ```{r}
+    
+    eig = eigen(Sx)
+    eig
+    eigvals = eig$values
+    eigvecs = eig$vectors
+
+    ```
+    Ahora, mostramos numéricamente las identidades mostradas al ver que la norma de la resta es prácticamente cero
+    
+    ```{r}
+      U = as.matrix(eigvecs)
+      L = diag(eigvals)
+      I = diag(c(1,1,1,1))
+      
+      norm(( U %*% L %*% t(U)) - Sx)
+      norm(U %*% t(U) - I)
+    ```
+    Y haciendo la gráfica:
+    
+    ```{r}
+        ggpairs(iris, mapping=aes(colour=Species))
+    ```
+
+
+\newpage
+
+4. Con los datos del ejercicio anterior:
+
+    + Crear una nueva matriz Y de 50 × 5 cuyas primeras cuatro columnas sean las mismas que X y cuya última columna es          Petal L. + Petal W. a través de encontrar una matriz C tal que Y = XC.
+    
+    La matriz C requerida es la siguiente:
+    ```{r}
+        C = matrix( c(1,0,0,0,0,
+                      1,0,0,0,0,
+                      1,0,0,0,0,
+                      1,0,0,1,1), nrow=4, ncol=5)
+        C
+    ```
+    Porque al realizar la multiplicación $XC$ se puede descomponer de la siguiente manera: $XC = Xc_1 + ... Xc_n$, en este     caso tenemos que para $1 \leq i \leq 4, c_i = e_i$ con $e_i$ el vector unitario por lo que las primeras 4 columnas      de la matriz $XC$ no cambiarán con respecto a las de $X$, asimismo, observamos que $Xc_5 = x_4 + x_4$ de forma que la     quinta columnda de la matriz $XC$ tendrá la variable requerida, Petal L. + Petal W.
+    
+    
+    + Calcular la matriz de covarianzas muestral SY y sus eigenvalores y eigenvectores. Noten que el eigenvalor más             pequeño es 0 (excepto posiblemente por redondeo) y el eigenvector correspondiente consiste de pesos w1, . . . w5 que       definen una combinación lineal de columnas de Y que tiene varianza 0. Esto ilustra que los eigenvectores que              corresponden a pequeños eigenvalores de SY ayudan a descubrir dependencias lineales entre variables.
+    
+    
+    ```{r}
+      X = as.matrix((X))
+      Y = X %*% C
+      Sy = cov(Y)
+      # Obtenemos los valores y vectores propios:
+      
+      # Valores propios
+      round(eigen(cov(Y))$values,2)
+      #Vectores propios
+      round(eigen(cov(Y))$vectors,2)
+      
+    ```
+     
+     El último valor propio es cero, notamos que si $v=(0,0,-t,-t,t), \ t \in \mathbb{R}$ entonces $v \in Ker(S_y)$
+     
+    ```{r}
+       round(Sy%*% matrix( c(0,0,-1,-1,1),ncol = 1),2)
+     ```
+     
+     Obteniendo una dependencia lineal entre las variablese $S_y$
+       
+    + Mostrar numéricamente que la covarianza muestral $S_Y$ se puede calcular también como $SY = C^{T}S_XC$.
+
+    ```{r}
+      Sy2 = t(C) %*% Sx %*% C
+      
+      # Y comparamos
+      round(Sy - Sy2, 3)
+    ```
+    
+    + Esto sucede puesto que:  y $S_y = \frac{Y^THY}{n}$ pero como vimos en el inciso b), $Y = XC$ de forma que $S_y=\frac{(XC)^TH(XC)}{n}$, desarrolando y agrupando $S_y = \frac{X^T(C^THX)C}{n}$ pero sabemos que $S_x =                 \frac{X^THX}{n}$, luego $S_y = X^TS_xC$
+    
+    
+\newpage
+
+
+5. Realizar un análisis exploratorio de datos sobre el archivo DatosCNBVIndicadores.csv disponible en la sección de Recursos/Datos de Piazza. Este archivo de datos es tal cual el que se obtiene de la CNBV
+
+  + Comencemos por leer en r:
+  
+    ```{r}
+      Sys.setlocale(category = 'LC_ALL','en_US.UTF-8')
+      indicadores = read_csv('data/DatosCNBVIndicadores.csv')
+      head(indicadores)
+    ```
+    
+    + Comenzamos por analizar valores distintos en columnas:
+  
+    ```{r}
+      summary(indicadores)
+      table(head(indicadores$publicacion))
+    ```
+    
+    + Al listar los valores distintos en publicación noté que hay uno que no va con ellos, "Textbox4". Buscamos en qué renglón se encuentra:
+  
+    ```{r}
+      indicadores %>%
+        add_rownames() %>%
+          filter(publicacion == 'Textbox4')
+    ```
+    
+    + Al parecer, a partir de el renglón 2269 hay otra tabla, las leeremos por separado y posteriormente uniremos la información:
+    
+    ```{r}
+    indicadores1 = read_csv('data/DatosCNBVIndicadores.csv', n_max = 2268)
+    indicadores2 = read_csv('data/DatosCNBVIndicadores.csv', skip = 2270)
+    
+    # Renombrando las columnas
+    names(indicadores1) <- c("item","concepto","publicacion","periodo","text","monto", 'flujo')
+    names(indicadores2) <- c("publicacion","periodo","text","item","concepto","monto", 'flujo')
+    
+    indicadores = rbind(indicadores1,indicadores2)
+    head(indicadores)
+    ```
+
+    + Haremos un análisis de los valores por columna:
+    
+    ```{r}
+    # La priumer columna siempre contiene NA's, no es necesaria
+    head(table(indicadores$item))
+    
+    # La columna concepto contiene variables de tipo categóricas
+    head(table(indicadores$concepto))
+    
+    # La columna publicación también contiene variables categóricas 
+    # y se refieren al banco en cuestión
+    head(table(indicadores$publicacion))
+    
+    # La columna de periodo únicamente tiene tres valores, 
+    # Parece ser que se refiere a 3 meses distintos del año 2018
+    # abril (4), mayo (5) y junio (6)
+    head(table(indicadores$periodo))
+    
+    # La columna text únicamente contiene "Año en curso", no es necesaria
+    head(table(indicadores$text))
+    
+    # La columna de monto tiene variables de tipo numérico
+    summary(indicadores$monto)
+    
+    # Finalmente, la columna dee flujo tiene algunos NA y 
+    # está en tipo categórico pese a ser numérico, convirtiendo.
+    indicadores$flujo = as.numeric(indicadores$flujo)
+    summary(indicadores$flujo)
+    
+    ```
+
+    + Finalmente, quitamos las columnas innecesarias:
+    
+    ```{r}
+      indicadores = select(indicadores, 'concepto', 'publicacion', 'periodo', 'monto', 'flujo')
+    ```
+
+    + Una vez analizadas las variables, lo que representan y el tipo de variable, concluye la fase de limpieza de datos y comienza el análisis exploratorio
+    
+    + Surge la pregunta ¿Habrá alguna relación entre las variables monto y flujo? y de ser asi ¿De qué naturaleza esdicha relación? Con las siguientes gráficas se pretende contestar dichas preguntas. Con el resumen estadístico vemos que pese a que el tercer cuantil de los montos es de 864.4 y la media es de 3256.4 el máximo es de 426681.7, parece que tendremos algunos valores extremos, ésto es confirmado con la primer gráfica, al graficar flujos vs montos intentando encontrar una relación veremos que prácticamente todos los puntos se concentran en valores muy chicos. 
+    
+    Dicho esto, se grafican los valores de flujos y de montos individualmente y se realiza un histograma, con estas visualizaciones se confirma que hay valores de monto explosivos, pueden ser errores de los datos o pueden pertenecer a algún banco o concepto en específico. Asimismo, notamos que casi el 95% de los montos están por debajo de 7500, con esto graficaremos una vez más flujos vs montos para descubrir que, al menos visualmente, la relación parece ser lineal.
+    
+    ```{r}
+      
+    summary(indicadores$monto)
+    summary(indicadores$flujo)
+    
+    quantile(indicadores$monto, probs = c(.93), na.rm = TRUE)
+    
+    par(mfrow=c(2,3))
+    
+    plot(indicadores$flujo, indicadores$monto)
+    
+    plot(indicadores$monto)
+    hist(indicadores$monto)
+    
+    plot(indicadores$flujo)
+    hist(indicadores$flujo)
+    
+    plot(indicadores$flujo, indicadores$monto, ylim = c(0, 7500))
+    ```
+
+    + Surge una nueva pregunta, ¿Dichos valores extremos pertenecen a algún banco o algún concepto en específico? Un primer intento por responder dicha pregunta nos lleva a buscar aquellos bancos y aquellos conceptos en los cuales el monto pertenece al .025 superior de la distribución, tras realizar dicho cálculo, obtenemos que en dichos valores de los 12 conceptos, 6 tienen apariciones, parece ser algo normal, sin embargo, en cuanto a bancos observaremos que de los 63 bancos distintos tan solo 7 tienen apariciones en los datos con valores de monto extremos.
+  
+    ```{r}
+      q = quantile(indicadores$monto, probs = c(.975), na.rm = TRUE)
+      extremos = filter(indicadores, monto > q)
+      table(extremos$concepto)
+      table(extremos$publicacion)
+    ```
+
+    De la misma manera, realizamos una boxplot y confirmamos que entre ellos hay uno que sobresale drásticamente, 'Sistema  Consolidado':
+    ```{r}
+      ggplot(indicadores, aes(x=publicacion, y=monto)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,outlier.size=2, notch=FALSE) + 
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+    ```
+
+    + Finalmente, queremos saber cómo afecta el periodo de tiempo en distintos bancos y para distintos conceptos, para esto obtendremos medidas descriptivas de los montos y flujos agrupando por conceptos y periodos en una primera instancia y en bancos y periodos en una segunda
+    
+    
+    ```{r}
+      
+      table_1 = group_by(indicadores, concepto, periodo) %>%
+            select(monto, flujo) %>%
+                summarise(
+                      flujo_mean = mean(flujo, na.rm = TRUE),
+                      flujo_var = var(flujo, na.rm = TRUE),
+                      flujo_max = max(flujo, na.rm = TRUE),
+                      monto_mean = mean(monto, na.rm = TRUE),
+                      monto_var = var(monto, na.rm = TRUE),
+                      monto_max = max(monto, na.rm = TRUE)
+                )
+    
+    table_2 = group_by(indicadores, publicacion, periodo) %>%
+            select(monto, flujo) %>%
+                summarise(
+                      flujo_mean = mean(flujo, na.rm = TRUE),
+                      flujo_var = var(flujo, na.rm = TRUE),
+                      flujo_max = max(flujo, na.rm = TRUE),
+                      monto_mean = mean(monto, na.rm = TRUE),
+                      monto_var = var(monto, na.rm = TRUE),
+                      monto_max = max(monto, na.rm = TRUE)
+                )
+    
+    (head(table_1))
+    (head(table_2))
+        
+    
+    ```
+    
+    
+    
+    

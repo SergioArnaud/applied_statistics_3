@@ -1,0 +1,271 @@
+---
+title: "Ejercicios Geometría de la muestra"
+author: "Jorge de la Vega"
+date: "29 de agosto de 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Ejercicios
+
+1. Distancia entre poblaciones de datos
+
+El concepto más común de distancia entre dos puntos es la distancia euclidena: si **x** y **y** son dos vectores entonces la distancia euclideana entre es 
+\[ ||x-y|| = (x-y)'(x-y) = \sqrt{(x_1-y_1)^2 + \cdots + (x_p-y_p)^2 } \]
+
+Otra medida de distancia es la métrica de Minkowski, dada por
+
+\[d_M(x,y) = \left( \sum_{i=1}^p |x_i-y_i|^m \right)^{1/m} \]
+
+Esta métrica incluye claramente a la euclideana ($m=2$), y cuando $m=1$ es la distancia conocida como "ciudad" o "Manhattan". (Pregunta a los avanzados: ¿qué pasa cuando $m \rightarrow \infty$?)
+
+Desde un punto de vista de muestras aleatorias, estas métricas no toman en cuenta la dispersión o variabilidad de una muestra aleatoria. Una medida más adecuada es la {\sl distancia de Mahalanobis} o distancia estandarizada por ${\bf A}$. Se define a través de una forma cuadrática ${\bf A}$:
+
+\[\delta_A(x,y) = \sqrt{(x-y)'A(x-y)} \]
+
+En particular, si ${\bf A} = {\bf \Sigma}^{-1}$ esta distancia tomará en cuenta la variabilidad de una muestra para definir la distancia entre dos puntos en relación a la posición de esos puntos en la muestra.
+
+Consideren las siguientes gráficas de puntos simulados en cada caso, de dos distribuciones normales bivariadas ${\bf X}$ y ${\bf Y}$ con diferentes medias y covarianzas en cada caso, de la siguiente manera:
+
+```{r}
+library(MASS) # mvrnorm para generar una muestra normal multivariada (los que tomaron simulación, conocen más formas)
+#Definimos parámetros para medias y covarianzas
+mu1 <- c(95,95)
+mu2 <- c(100,100)
+mu3 <- c(95,100)
+mu4 <- c(100,95)
+Sigma1 <- 5*diag(2)
+Sigma2 <- matrix(5*c(1,0.9,0.9,1),ncol=2)
+
+par(mfrow=c(2,2))
+
+#Gráfica 1 : con X~N(mu1,Sigma1), Y~N(mu2,Sigma1)
+plot(mvrnorm(50, mu1, Sigma1), col = "red", xlab = "", ylab = "", xlim = c(90,105), ylim = c(90,110))
+points(mvrnorm(50, mu2, Sigma1), col = "blue")
+points(x = mu1[1], y = mu1[2], col = "red", pch = 19, cex = 2)
+points(x = mu2[1], y = mu2[2], col = "blue", pch = 19, cex = 2)
+
+#Gráfica 2: con X~N(mu3,Sigma1), Y~N(mu4,Sigma1)
+plot(mvrnorm(50, mu3, Sigma1), col = "red", xlab = "", ylab = "", xlim = c(90,105), ylim = c(90,110))
+points(mvrnorm(50, mu4, Sigma1), col = "blue")
+points(x = mu3[1], y = mu3[2], col = "red", pch = 19, cex = 2)
+points(x = mu4[1], y = mu4[2], col = "blue", pch = 19, cex = 2)
+
+#Gráfica 3: con X~N(mu1,Sigma2), Y~N(mu2,Sigma2)
+plot(mvrnorm(50, mu1, Sigma2), col = "red", xlab = "", ylab = "", xlim = c(90,105), ylim = c(90,110))
+points(mvrnorm(50, mu2, Sigma2), col = "blue")
+points(x = mu1[1], y = mu1[2], col = "red", pch = 19, cex = 2)
+points(x = mu2[1], y = mu2[2], col = "blue", pch = 19, cex = 2)
+
+#Gráfica 4: con X~N(mu3,Sigma2), Y~N(mu3,Sigma2)
+plot(mvrnorm(50, mu3, Sigma2), col = "red", xlab = "", ylab = "", xlim = c(90,105), ylim = c(90,110))
+points(mvrnorm(50, mu4, Sigma2), col = "blue")
+points(x = mu3[1], y = mu3[2], col = "red", pch = 19, cex = 2)
+points(x = mu4[1], y = mu4[2], col = "blue", pch = 19, cex = 2)
+```
+
+Suponiendo que la distancia entre las poblaciones estuviera asociado a la distancia entre las medias, vemos que en todos los casos la distancia euclideana es la misma, y no se toma en cuenta la variación de los datos. Lo mismo en la distancia ciudad:
+
+```{r}
+norma <- function(x,y) as.numeric(sqrt(t(x-y)%*%(x-y)))
+norma(mu1, mu2)
+norma(mu3, mu4)
+Minkowski <- function(x,y,m=1)(sum(abs(x-y)^m))^(1/m)
+Minkowski(mu1,mu2,m=200)
+Minkowski(mu3,mu4)
+```
+
+Sin embargo, en la distancia de Mahalanobis, obtenemos diferencias entre las poblaciones: mientras menos traslape haya entre las poblaciones, mayor es la distancia de Mahalanobis. 
+
+```{r}
+sqrt(mahalanobis(mu1, mu2, cov = Sigma1))
+sqrt(mahalanobis(mu3, mu4, cov = Sigma1))
+sqrt(mahalanobis(mu1, mu2, cov = Sigma2))
+sqrt(mahalanobis(mu3, mu4, cov = Sigma2))
+```
+
+Más adelante veremos formalmente que la distancia de Mahalanobis encuentra automáticamente la dirección de mayor separación. Usaremos también en el análisis de similaridad diferentes distancias.
+
+2. Dada la matriz de datos ${\bf X}$, hagan la descomposición de ${\bf y}_1$ en $\bar{x}_1{\bf 1}$ y ${\bf y}_1 - \bar{x}_1{\bf 1}$ usando la primera columna de ${\bf X}$.
+
+```{r}
+# Para la solución, podemos ver que tenemos que alterar un poco la definición de las fórmulas para manejar vectores y # matrices. Si usamos todo el tiempo matrices, los números se convierten en matrices de 1x1 y tendremos que 
+# convertirlos a números con as.numeric, haciendo un poco más complicada la notación.
+
+X <- matrix(c(1,2,5,4,1,6,4,0,4),nrow=3,byrow=T)
+X
+y1 <- X[,1]
+uno_s <- rep(1,3)/sqrt(3) #vector 1 normalizado
+uno_s
+xbar1_uno <- t(y1) %*% uno_s %*% uno_s
+d1 <- as.vector(y1 - xbar1_uno) #vector diferencia ortogonal a y1
+d1
+```
+
+3. Calculen la varianza generalizada de las siguientes matrices:
+
+```{r}
+X1 <- matrix(c(9,5,1,1,3,2),nrow=3)
+X2 <- matrix(c(1,2,5,4,1,6,4,0,4),nrow=3,byrow=T)
+```
+
+```{r}
+det(cov(X1)) # varianza generalizada de X1
+det(cov(X2)) # varianza generalizada de X2
+```
+
+Como la varianza generalizada de ${\bf X2}$ es 0, entonces las columnas de la matriz son linealmente dependendientes:
+
+```{r}
+#hay que descomentar la instrucción para ver el resultado, de otro modo no se puede compilar el archivo por el error:
+#solve(X2) 
+```
+
+
+4. Consideren la matriz siguiente
+
+```{r}
+X <- matrix(c(-1,3,-2,2,4,2,5,2,3),nrow=3,byrow=T)
+X
+```
+
+- Calculen la matriz de desviaciones ${\bf X} - {\bf 1}\bar{{\bf x}}'$. ¿Tiene rango completo? Explicar.
+- Determinen ${\bf S}$
+
+```{r}
+# obtenemos el vector de medias:
+xbar <- colMeans(X)
+d <- X - rep(1,3) %*% t(xbar)
+d
+# obtenemos S a partor de la matriz de desviaciones:
+S <- d %*% t(d) / 2 # n-1 = 2
+S
+cov(X) # verificamos
+```
+
+5. Consideremos combinaciones lineales de las variables: Para la matriz 
+```{r}
+X <- matrix(c(1,4,3,6,2,6,8,3,3),nrow=3, byrow=T)
+X
+```
+
+tomar las combinaciones lineas con ${\bf c}' = (1,1,1)$  y ${\bf b}' = (1,2,-3)$.
+
+- Evalua la media muestral, varianzas y covarianzas de ${\bf c}'{\bf X}$ y ${\bf b}'{\bf X}$
+
+```{r}
+#Solución:
+c1 <- c(1,1,1)
+b <- c(1,2,-3)
+# Valores observados de las combinaciones lineales
+cX <-  X %*% c1
+bX <- X %*% b
+# Medias de las combinaciones lineales
+cXbar <- c1 %*% colMeans(X) #regresa matriz de 1x1. Hay que convertir a numeric
+cXbar
+bXbar <- b %*% colMeans(X)
+bXbar
+# Varianzas de las combinaciones lineales:
+t(c1) %*% var(X) %*% c1
+t(b) %*% var(X) %*% b
+#validamos calculando directamente la varianza de la combinación lineal
+var(cX)
+var(bX)
+#Covarianza entre las combinaciones lineales:
+t(c1) %*% var(X) %*% b
+#Verificamos
+cov(cX,bX)
+```
+
+6. En los climas del norte la nieve tiene que ser retirada rápidamente después de cada tormenta (para evitar accidentes, ya que se convierte en hielo y se endurece). Una medida de la severidad de la tormenta es $x_1=$ su duración en horas, y la efectividad del retiro de la nieve  se puede cuantificar como $x_2=$ el número de horas hombre y máquina, usados en la limpieza de la nieve. Los siguientes datos corresponden a 25 incidentes en Wisconsin:
+
+```{r}
+nieve <- data.frame(
+         x1 = c(12.5,14.5,8,9,19.5,8,9,7,7,9,6.5,10.5,10,4.5,7,8.5,6.5,8,3.5,8,17.5,10.5,12,6,13),
+         x2 = c(13.7,16.5,17.4,11,23.6,13.2,32.1,12.3,11.8,24.4,18.2,22,32.5,18.71,5.8,15.6,12,
+                12.8,26.1,14.5,42.3,17.5,21.8,10.4,25.6)
+         )
+```
+
+- Encuentren la media y varianza muestrales de la diferencia $x_2-x_1$ primero obteniendo las estadísticas sumarias.
+
+```{r}
+xbar <- colMeans(nieve)
+xbar
+S <- var(nieve)
+S
+#la combinación lineal es $a=(-1,1)$, así que:
+a <- c(-1,1)
+#media:
+as.numeric(t(a) %*% xbar)
+#varianza
+as.numeric(t(a) %*% S %*% a)
+```
+
+- Obtener la media y varianza primero obteniendo los valores individuales $x_{j2}-x_{j1}$ para $j=1,2,\ldots,25$ y luego calculando la media y covarianza. Comparar los valores con los obtenidos antes.
+
+```{r}
+#directamente es más fácil en este caso (pero no siempre será así, depende de la combinación lineal)
+x3 <- nieve$x2-nieve$x1
+mean(x3)
+var(x3)
+```
+
+Aprovechamos para ver los datos: anticipadamente, podemos estimar una correlación positiva ya que a mayor duración de la tormenta, se espera una mayor acumulación de nieve y por supuesto, más trabajo para retirarla. Mientras **menos** cercana sea la correlación a 1, sería razonable pensar que más eficientes serán los equipos para limpiarlas, pero esto dependerá también del tipo de tormenta y la nieve que caiga.
+```{r}
+with(nieve,plot(x1,x2, xlab = "duración (hrs)",
+                        ylab = "hrs hombre") )
+cor(nieve)
+```
+
+7. Recordatorio de descomposición espectral. Para la matriz ${\bf A}$ siguiente, encuentren los eigenvalores y eigenvectores y escriban la descomposición espectral
+
+```{r}
+A <- matrix(c(13,-4,2,-4,13,-2,2,-2,10),nrow=3)
+A
+```
+
+Lo que tenemos que hacer es resolver la ecuación $det({\bf A}-\lambda{\bf I})=0$
+
+Desarrollando el determinante $\det{\begin{pmatrix} 13-\lambda & -4 & 2 \\ -4 & 13-\lambda & -2 \\ 2 & -2 & 10- \lambda\end{pmatrix}}$ que es igual a  
+\[ (13-\lambda)[(13-\lambda)(10-\lambda)-4] + 4[(-4)(10-\lambda)+4] -2[8+2(13-\lambda)] = -\lambda^3+36\lambda^2-405\lambda+1458=0\] 
+
+Podemos encontrar las raíces con la función {\tt polyroot}
+```{r}
+polyroot(c(1458,-405,36,-1)) #devuelve las ríces complejas
+Re(polyroot(c(1458,-405,36,-1)))
+```
+
+Los eigenvectores son las ${\bf x}$ que satisfacen ${\bf A}{\bf x} = \lambda{\bf x}$. Entonces para $\lambda=18$: nos queda el sistema de ecuaciones:
+
+\begin{eqnarray}
+ 13x_1 - 4x_2 + 2x_3 &=& 18 x_1 \\
+ -4x_1 +13x_2 - 2x_3 &=& 18 x_2 \\
+  2x_1 - 2x_2 + 10x_3 &=& 18 x_2 
+\end{eqnarray}
+ Este sistema se simplifica sumando las dos primeras ecuaciones y nos quedan las dos ecuaciones: $x_1 + x_2 = 0$  y $x_1 - x_2 - 4x_3 = 0$ y se simplifica a las dos ecuaciones con tres incógnitas: $x_1 + x_2=0$ y $x_2 + 2x_3=0$. Tomando $x_1=1$ arbitrariamente, una solución es ${\bf x}=(1,-1,1/2)$ y el eigenvector estándarizado  asociado a $\lambda=18$ es ${\bf e}=(1,-1,1/2)/\sqrt{9/4}=(2/3,-2/3,1/3)$. Del mismo modo hay que resolver para $\lambda=9$.
+ 
+ Con funciones de R:
+```{r}
+eigen(A) 
+e1 <- eigen(A)$vectors[,1] #están en el orden dado de los eigenvectores
+e2 <- eigen(A)$vectors[,2]
+e3 <- eigen(A)$vectors[,3]
+#Descomposición espectral de A:
+B <- 18*e1%*%t(e1) + 9*e2%*%t(e2)+9*e3%*% t(e3)
+round(A-B,10) # son iguales 
+```
+ 
+La generalización de la descomposición espectral para matrices simétricas a matrices rectangulares de $m\times k$ es la descomposición en valor singular. Por ejemplo, 
+
+```{r}
+B <- matrix(c(4,3,8,6,8,-9),nrow=2) #matriz de 2x3
+B
+svd(B) # descompone la matriz en uDv'
+svd(B)$u %*% diag(svd(B)$d) %*% t(svd(B)$v) #reproducimos B
+```
+
+En este caso se puede escribir ${\bf B}= \sum_{i=1}^r \lambda_i{\bf u}_i{\bf v}'={\bf U}{\bf \Lambda}{\bf V}'$ , donde ${\bf U}$ es una matriz ortogonal de $m\times m$ y ${\bf V}$ es una matriz ortogonal de $k\times k$ y hay $min(m,k)$ valores $\lambda_i\geq 0$.
+
+

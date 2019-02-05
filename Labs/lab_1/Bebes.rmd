@@ -1,0 +1,159 @@
+---
+title: "Ejemplos de Análisis de Datos"
+author: "Jorge de la Vega"
+date: "5 de agosto de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Ejemplo 1: Datos de nacimiento
+	
+Los siguientes datos corresponden a 427,323 registros con 13 variables de nacimientos de bebés en los Estados Unidos  durante 2006[^1]
+
+[^1]:Los datos originales se pueden obtener de: [Vitalstatsonline](http://www.cdc.gov/nchs/data_access/Vitalstatsonline.htm)y el diccionario de datos está en la siguiente liga: [Userguide2016.pdf](ftp://ftp.cdc.gov/pub/Health_Statistics/NCHS/Dataset_Documentation/DVS/natality/UserGuide2016.pdf). Son el 10\% de la muestra de datos originales. El archivo original tiene 3.1Gb.
+
+
+
+```{r, comment=NA}
+library(lattice)
+library(ggplot2)
+library(nutshell)     #paquete que contiene los datos
+data(births2006.smpl) #datos de nacimiento
+str(births2006.smpl) #estructura de los datos
+```
+
+La descripción de los variables disponibles conforman el {\sl diccionario de datos} que usualmente contiene los {\sl metadatos} que describen las características relevantes de los datos.
+
+- _DOB_MM_: mes de la fecha de nacimiento
+- _DOB_WK_: semana de la fecha de nacimiento
+- _MAGER:_: edad de la madre
+- _TBO\_REC_: orden de nacimiento total
+- _WTGAIN_: peso ganado de la madre
+- _SEX_: sexo del bebé
+- _APGAR5_: score Apgar
+- _DMEDUC_: Nivel educativo de la madre
+- _UPREVIS_: Número de visitas prenatales
+- _ESTGEST_: semanas de gestación estimadas
+- _DMETH\_REC_: Método de nacimiento
+- _DPLURAL_: Nacimientos múltiples (único, gemelos, triátes, etc.)
+- _DBWTH_: Peso al nacer (en gramos)
+
+
+De acuerdo a la estructura de datos, vemos que hay variables que son enteras, y hay tres factores, que son variables categoricas.
+
+Para realizar nuestro análisis, podemos separar los datos cuantitativos de los categóricos y éstos últimos utilizarlos como *etiquetas* para analizar la información por grupos. La matriz $X$ se conforma con todas las variables, convirtiendo a factores las variables categóricas.
+
+
+### Algunas preguntas relevantes sobre los datos
+
+Todo análisis comienza intentando responder algunas preguntas básicas que podamos responder obteniendo algunas estadísticas descriptivas de la información. Por ejemplo:
+
+- ¿Cuál es el peso promedio de los bebés al nacimiento?
+- ¿Hay alguna relación entre la edad de la madre o su peso y el peso de los bebés, o los nacimientos múltiples?
+- ¿Hay alguna relación entre la edad de la madre y su nivel de escolaridad?
+- ¿cuál es el periodo promedio de gestación y cuál es su desviación estándar?
+- ¿Cómo se distribuye el número de nacimientos por mes? ¿por día de la semana?
+- ¿Hay alguna relación entre la edad de la madre o su edad y el score Apgar del bebé?
+- ¿Se puede predecir el peso del bebé de características como el periodo estimado de gestación y la ganancia en peso de la madre?
+- ¿Podemos identificar nacimientos que llevan a un score APGAR bajo?
+
+En las siguientes láminas se responderán algunas de estas preguntas.
+
+
+### Herramientas para EDA
+
+- Análisis univariado
+- Medidas multivariadas de centralidad
+- Medidas multivariadas de 
+
+### Peso promedio de los bebés al nacimiento.
+
+Podemos simplemente analizar el peso promedio de los bebés a través de las estadísticas usuales:
+
+```{r}
+summary(births2006.smpl$DBWT/1000)
+```
+
+En los datos podemos ver que algunos casos (434) no tienen información del peso. El peso promedio de los bebés al nacimiento es de  `r round(mean(births2006.smpl$DBWT,na.rm=T)/1000,3)` y su desviación estándar es `r round(sd(births2006.smpl$DBWT,na.rm=T)/1000,3)`. 
+
+Podemos obtener más información sobre el peso: 
+
+- Podemos obtener la distribución de los pesos
+- distribución del peso por género del bebé
+- distribución del peso del bebé por nacimientos múltiples
+
+### Histogramas
+
+```{r}
+ggplot(data=births2006.smpl,aes(DBWT,geom="density",fill=SEX)) + 
+geom_histogram(bins= 50) + 
+facet_grid(SEX~.) + 
+labs(title="Histograma de nacimientos por género",
+      y = "Conteo",
+      x = "Peso del bebé al nacer")
+```
+
+### Boxplots
+Otra versión visual son los boxplots para comparar poblaciones:
+
+
+```{r}
+ggplot(data=births2006.smpl,aes(x=SEX,y=DBWT/1000,fill=SEX)) + 
+geom_boxplot() + 
+labs(y = "Peso en (Kgs)", x = "Género del bebé")
+ggplot(data=births2006.smpl,aes(x=DPLURAL,y=DBWT/1000,fill=SEX)) + 
+geom_boxplot()
+```
+
+### Nacimientos por día de la semana
+La codificación comienza con domingo (1).
+
+```{r waring=F,messages=F, echo=T, fig.height=3}
+suppressMessages(library(dplyr))
+births2006.smpl %>% 
+  group_by(DOB_WK) %>% 
+  summarize(Numero = n()) %>%
+  ggplot(aes(x = DOB_WK, y = Numero)) + 
+  geom_point(color="red", fill="red4", size=5) + 
+  labs(y = "Frecuencia de Nacimientos", x = "Día de la semana") + 
+  coord_flip()
+```
+
+### Por nacimientos múltiples
+
+```{r warning=F}
+ggplot(data=births2006.smpl,aes(DBWT,fill=SEX)) + 
+geom_density(alpha = 0.4) + 
+facet_grid(DPLURAL~.,scales="free")
+```
+
+### Relación entre edad y peso de la madre con el peso del bebé
+```{r warning=F,echo=T, cache=T}
+a <- births2006.smpl %>%
+      select(MAGER,APGAR5,SEX, DBWT)
+ggplot(data=a, aes(x=MAGER, y=DBWT, col=SEX, size=APGAR5)) +
+  geom_point(alpha=0.3)
+```
+
+Quizá sea más informativa la matriz de correlaciones
+```{r echo=T, message=F, fig.height=5}
+library(ellipse)
+cor(a[,-3], use = "complete.obs")
+plotcorr(cor(a[,-3], use = "complete.obs"))
+```
+
+### Diferentes tipos de gráficas con `GGally`
+
+```{r warning=F,echo=T, cache=T, message=F}
+library(GGally)
+ggpairs(a)
+```
+
+### Fuentes adicionales de información para exploración de datos
+
+- [How Data Visualization was born](https://towardsdatascience.com/the-pioneers-of-data-visualization-ca58b7dc8013)
+-  paquete `codebook`
+

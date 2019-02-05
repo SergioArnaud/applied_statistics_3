@@ -1,0 +1,138 @@
+---
+title: "EDA R1 CNBV"
+author: "Jorge de la Vega"
+date: "9 de agosto de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment=NULL)
+options(width=180)
+```
+
+En este documento se hace un análisis exploratorio de la información sobre captación tradicional que forma parte del balance (R1) de las instituciones bancarias en México del mes de julio de 2018.
+
+## Datos
+
+Los datos se obtienen de la página del portal del portafolio de informació financiera de la CNBV [Portafolio de información financiera](https://picomponentebi.cnbv.gob.mx/ReportViwer/ReportService?sector=40&tema=1&subTema=0&tipoInformacion=0&subTipoInformacion=0&idReporte=040_10a_R1&idPortafolio=0&idTipoReporteBI=1)
+
+Primero hay que convertir los datos a una matriz de datos apropiada con el formato requerido. El archivo contiene dos partes con dos formatos diferentes. En ambos casos, hay que hacer manipulación de los datos para ponerlos en el formato que se requiere
+
+```{r}
+datos <- read.csv("../data/DatosCNBVR1.csv",header = T,skip = 1217)
+head(datos)
+```
+
+En este formato, vemos que los datos están en formato _long_. Nos interesa analizar para cada banco los diferentes conceptos.
+
+```{r}
+library(tidyverse)
+datos2 <- datos %>%  select(-c(Textbox4,cve_item2,Flujo_Mes1)) %>%
+          filter(cve_periodo2=="201805") %>%
+          spread(Concepto1, item_Importe2) %>%
+          select(-cve_periodo2)
+head(datos2)
+```
+Conviene renombrar los nombres de las variables para poder manipularlas mejor
+
+```{r}
+names(datos2) <- c("inst","dep_pubgen","mdo_din","dep_plazo","dep_exi","tit_cred")
+head(datos2)
+datos <- as.data.frame(apply(datos2[,-1], 2, function(x)as.numeric(gsub(pattern=",",replacement="",x,fixed = TRUE))))
+row.names(datos) <- datos2$inst
+head(datos)
+```
+
+
+Antes de continuar hay que notar que algunos de los renglones de la matriz de datos corresponden a operaciones agregadas de ciertos subconjuntos de instituciones bancarias que hay que eliminar porque no corresponden a unidades experimentales. Por ejemplo, hay un registro que corresponde al "Total Banca Múltiple", otro a "Santander Consolidado", etc. 
+
+Además algunas instituciones no realizan operaciones de captación (o no reportan sus datos a la CNBV), como GE Money, Ixe (que se fusionó con Banorte), ING, etc. 
+
+También valdría la pena evaluar si se realiza un análisis excluyendo a bancos que reportan varios de los conceptos en cero, como Deutsche Bank. En este ejercicio se dejan a esos bancos para resaltar algunos puntos relevantes del análisis.
+
+Por último, también hay que tener una idea de los conceptos relacionados con los atributos que se están midiendo. Los datos en las columnas están relacionados contablemenete: Los depósitos a plazo son la suma de los depósitos del publico en general más los depósitos por mercado de dinero:
+\[ {\tt dep\_plazo} = {\tt dep\_pubgen} + {\tt mdo\_din}\]
+
+Lo anterior se puede comprobar de la siguiente manera:
+
+```{r}
+with(datos,sum((dep_plazo-(dep_pubgen+mdo_din))^2,na.rm=T))
+```
+
+Entonces es necesario eliminar una columna para evitar multicolinearidad en la matriz de datos. Se eliminará el agregado.
+
+```{r}
+datos <- datos[,-3]
+```
+
+Eliminando estos registros nos queda la matriz de datos para comenzar el análisis
+
+```{r}
+#renglones a eliminar de la matriz:
+nombres <- row.names(datos)
+l <- c(grep("Consolidado",nombres),grep("G-7",nombres),grep("Servicios",nombres),
+       grep("Comercial",nombres),grep("Total Banca",nombres),grep("Créditos a los Hogares",nombres),
+       grep("Bicentenario",nombres),grep("Deuno",nombres),grep("Wal-Mart",nombres),
+       grep("ING",nombres),grep("Ixe",nombres),grep("Wal-Mart",nombres),grep("GE Money",nombres),grep("New York Mellon",nombres),
+       grep("UBS",nombres))
+bancos <- datos[-l,]
+bancos
+```
+
+
+## Estadísticas sumarias:
+
+```{r}
+summary(bancos)
+```
+- El rango de variación entre el valor mínimo y el más grande indica que los datos pueden transformarse a la escala logarítmica para poder tener un mejor manejo, aunque la interpretación de los resultados pueda cambiar. Para evitar los ceros en el logaritmo, se puede agregar el valor 1 a la transformación.
+
+```{r}
+bancos <- log(bancos + 1)
+```
+
+
+Podemos ver la distribución de cada variable transformada en un histograma.
+
+```{r}
+par(mfrow=c(2,2))
+for(i in 1:4){
+  hist(bancos[,i],xlab=colnames(bancos)[i],ylab="frecuencia",main="",breaks=20)
+}
+```
+
+Para identificar algunas relaciones entre las variables, se puede incluir una matriz de gráficas de dispersión 
+
+```{r, fig.asp=1,fig.height=10}
+pairs(bancos)
+```
+
+Evaluando el vector de medias, la matriz de covarianzas y la matriz de correlaciones. Como la matriz tiene datos faltantes, no podemos usar las fórmulas matriciales, pero las funciones que están definidas.
+
+```{r}
+n <- dim(bancos)[1]
+xbar <-apply(bancos,2,mean,na.rm=T)
+xbar
+
+S <- var(bancos,na.rm=T)
+S
+
+R <- cor(bancos,use="pairwise")
+R
+```
+
+Bubble plot: (hasta tres variables)
+
+```{r,fig.height=10, fig.asp=1}
+radio <- sqrt( bancos$dep_exi/ pi ) #escalado a área correcta.
+with(bancos,symbols(dep_pubgen,mdo_din,circles=radio,inches = 0.35,fg="white", bg="red"))
+with(bancos,points(dep_pubgen,mdo_din,type="p",cex=0.2))
+with(bancos,text(dep_pubgen,mdo_din,row.names(bancos),cex=0.5,offset = 0.1,adj=0.05))
+```
+
+Gráficas de estrella:
+
+```{r, fig.asp=1,fig.height=10}
+stars(bancos,key.loc=c(0,0))
+```
+

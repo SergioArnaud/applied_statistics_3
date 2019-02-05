@@ -1,0 +1,526 @@
+---
+title: "Laboratorio sobre discriminación lineal"
+author: "Jorge de la Vega"
+date: "26 de octubre de 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(width = 100)
+```
+
+## Análisis de Datos "German Credit"
+
+### Introducción
+
+En la sesión de hoy, revisaremos un conjunto de datos que se encuentran disponibles de manera pública y que se encuentran relativamente ordenados y "limpios", para facilitar su análisis y descripción. 
+
+En este tutorial, lo que haremos será introducir los paquetes y las estrategias para manipular diferentes tipos de datos.
+
+Los paquetes que utilizaremos son los siguientes:
+
+```{r, message=F}
+library(dplyr)   #Para manipular fácilmente los datos en general
+library(tidyverse)
+library(forcats) #Para manejo de variables categóricas
+library(MASS)    #Función lda y qda
+```
+
+###  Preparación de los Datos
+
+Los datos que se considerarán en este ejercicio corresponden a 1000 casos de personas con varios de atributos demográficos y financieros (edad, estado civil, ingreso, etc) a las que se les clasifica como buenos o malos pagadores cuando se les otorgó un crédito por parte de un Banco alemán. 
+
+__Estos datos se pueden usar para probar modelos de riesgos, o credit scoring y medir qué tan bien pueden predecir esos modelos con los atributos dados para cada persona.__ 
+
+Los datos se encuentran en el [Repositorio UCI de la Universidad de California](/ml/index.php), que tiene varios conjuntos de datos que se pueden usar para analizar y probar diferentes tipos de modelos para Aprendizaje de Máquina.
+
+La [descripción detallada(https://archive.ics.uci.edu/ml/datasets/statlog+(german+credit+data) de lo que representa cada variable es necesario para entender la manera en que los datos están codificados.
+
+```{r}
+# https://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.data
+german <- read.table(file = "../data/german.data",
+                     header = F,
+                     sep = "")
+```
+
+Hay 1,000 observaciones en el conjunto de datos, con 21 variables y 8 de ellas son variables discretas, 13 son factores; la mayoría de los datos están codificados y para entenderlos hay que revisar el diccionario de datos.
+
+Los datos están dados sin nombres de columnas, hay que tomarlos de la descripción de los datos. Entonces hay que ponerle nombres a las columnas. Estas tienen la siguiente información: 1. Estatus de la cuenta de cheques existente. 2. Duración (en meses).  3. Historial de crédito 4.Propósito del crédito. 5. Monto del crédito. 6. Cuenta de ahorros/bonos. 7. Tiempo en el empleo actual. 8. Tasa en porcentaje de ingreso disponible. 9. Estatus personal y sexo. 10. Otros deudores/garantores. 11. Tiempo en la residencia actual. 12. Propietario. 13. Edad en años. 14. Otros planes de entrega. 15. Casa 16. Número de créditos existentes en este banco. 17. Empleo. 18. Número de dependientes económicos. 19. Tiene teléfono. 20. Es extranjero?. 21. Pago el crédito (si=1,no=2)
+
+```{r}
+colnames(german) = c("cta_cheques", "duracion", "his_credito", "proposito", "monto", 
+                     "cta_ahorro", "empleo_act", "tasa_pagos", "status_personal", "otros_deudores", 
+                     "resid_act", "propiedad", "edad", "otros_pagos", "casa", "no_creditos", 
+                     "tipo_trabajo", "num_depen", "telefono", "extranjero", "tipo")
+head(german)
+glimpse(german)  #Para dar un vistazo a la estructura, también se puede usar str(german)
+```
+
+Como se tienen los datos originales, son poco interpretables como están y hay que revisar qué significa cada código asociado a las variables categóricas en la documentación provista, así que será conveniente "domesticar" a los datos para poder extraer información de ellos y poder describir a la muestra adecuadamente.
+
+```{r}
+# Recodificación de los factores (de acuerdo al diccionario de datos)
+german1 <- german %>% mutate(cta_cheques = fct_recode(cta_cheques, 
+                                                      nada = "A11", 
+                                                      menos_200 = "A12", 
+                                                      mas_200 = "A13", 
+                                                      no_cuenta = "A14"),
+                             duracion = duracion,
+                             his_credito = fct_recode(his_credito, 
+                                                      cred_pagados = "A30", 
+                                                      cred_local_pagados = "A31", 
+                                                      otros_cred_pagados = "A32", 
+                                                      retraso_pagos = "A33", 
+                                                      cuenta_critica = "A34"),
+                             proposito = fct_recode(proposito, 
+                                                    auto_nuevo = "A40", 
+                                                    auto_usado = "A41", 
+                                                    muebles = "A42", 
+                                                    electro = "A43", 
+                                                    enseres = "A44", 
+                                                    reparaciones = "A45", 
+                                                    educacion = "A46", 
+                                                    vacacion = "A47", 
+                                                    capacitacion = "A48", 
+                                                    negocios = "A49", 
+                                                    otros = "A410"),
+                             monto = monto,
+                             cta_ahorro = fct_recode(cta_ahorro, 
+                                                     menos_100 = "A61", 
+                                                     entre_100_500 = "A62", 
+                                                     entre_500_1000 = "A63", 
+                                                     mas_1000 = "A64", 
+                                                     nocuenta = "A65"),
+                             empleo_act = fct_recode(empleo_act, 
+                                                     desempleado = "A71", 
+                                                     menos_1 = "A72", 
+                                                     entre_1_4 = "A73", 
+                                                     entre_4_7 = "A74", 
+                                                     mas_7 = "A75"),
+                             tasa_pagos = tasa_pagos, 
+                             status_personal = fct_recode(status_personal, 
+                                                          h_divor = "A91", 
+                                                          m_divor_sep_cas = "A92", 
+                                                          h_sol = "A93", 
+                                                          h_casado_viudo = "A94", 
+                                                          m_sol = "A95"),
+                             otros_deudores = fct_recode(otros_deudores,
+                                                         ninguno = "A101", 
+                                                         coaplicante = "A102", 
+                                                         aval="A103"),
+                             propiedad = fct_recode(propiedad,
+                                                    bienes_raices = "A121", 
+                                                    seguro = "A122", 
+                                                    auto_otro_no6 = "A123", 
+                                                    no_sin_prop = "A124"),
+                             edad = edad,
+                             otros_pagos = fct_recode(otros_pagos, 
+                                                      banco = "A141", 
+                                                      tiendas = "A142", 
+                                                      ninguno = "A143"),
+                             casa = fct_recode(casa, 
+                                               renta = "A151", 
+                                               propia = "A152", 
+                                               gratis = "A153"),
+                             no_creditos = no_creditos,
+                             tipo_trabajo = fct_recode(tipo_trabajo, 
+                                                       desempleado = "A171", 
+                                                       incapacitado_residente = "A172",
+                                                       empleado_capacitado = "A173", 
+                                                       empleado_prof = "A174"),
+                             num_depen = num_depen,
+                             telefono = fct_recode(telefono, 
+                                                   ninguno = "A191", 
+                                                   si = "A192"),
+                             extranjero = fct_recode(extranjero, 
+                                                     si = "A201", 
+                                                     no = "A202"),
+                             tipo = ifelse(tipo == 2, 0, 1) )
+
+head(german1)
+```
+
+`tabla`contiene todas las tablas de contingencia de las variables categoricas. 
+
+```{r}
+tabla <- with(german1, table(cta_cheques,
+                             his_credito,
+                             proposito,
+                             cta_ahorro,
+                             empleo_act,
+                             status_personal,
+                             otros_deudores,
+                             propiedad,
+                             otros_pagos,
+                             casa,
+                             tipo_trabajo,
+                             telefono,
+                             extranjero,
+                             tipo))
+dim(tabla)
+prod(dim(tabla)) #número de celdas
+```
+
+Noten que el número de dimensiones de esta tabla es muy grande, por lo que posiblemente haya muchos conteos cero. Una manera de resolver este problema es reducir el número de categorías en las variables categóricas agrupando las categorías que tienen pocos conteos.
+
+A continuación se calculan las proporciones para cada una de las variables categóricas
+```{r}
+for (i in 1:14) print(margin.table( prop.table(tabla), i))
+```
+
+Notemos lo siguiente:
+
+- En `cta_cheques` sólo hay unos cuantos clientes con más de 200 DM. Podemos considerar niveles `no_cuenta`, `no_saldo` y `saldo`.
+
+```{r}
+german1 <- german1 %>% mutate(cta_cheques = fct_collapse(cta_cheques, nocuenta = "no_cuenta", 
+                                                                      no_saldo = "nada",
+                                                                      saldo    = c("menos_200","mas_200")))
+```
+
+- Para el `hist_credito` podemos agrupar en tres categorías: pagados, retrasados, criticos
+
+```{r}
+german1 <- german1 %>% mutate(his_credito = fct_collapse(his_credito, retrasados = "retraso_pagos", 
+                                                                      criticos = "cuenta_critica",
+                                                                      pagados = c("cred_pagados", "cred_local_pagados", "otros_cred_pagados")))
+```
+
+- Para el proposito del crédito, podemos agrupar {educacion, capacitación} en una categoria, y {enseres, muebles, electro, reparaciones} en otra e incorporar negocios en otros:
+
+```{r}
+german1 <- german1 %>% mutate(proposito = fct_collapse(proposito, otros = c("otros","negocios"), 
+                                                       hogar = c("muebles", "enseres", "electro", "reparaciones"),
+                                                                educacion = c("educacion", "capacitacion")))
+```
+
+- La `cuenta_ahorro` se puede agrupar en `nocuenta`,`menos_100`, `de100a1000` y `mas_de_1000`.
+
+```{r}
+german1 <- german1 %>% mutate(cta_ahorro = fct_collapse(cta_ahorro, nocuenta = "nocuenta", 
+                                                       menos_100 = "menos_100",
+                                                       mas_1000 = "mas_1000",
+                                                       de100a1000 = c("entre_100_500","entre_500_1000")))
+```
+
+- En `empleo_act` podemos considerar a los desempleados en la categoría de personas que tienen menos de un año trabajando
+
+```{r}
+german1 <- german1 %>% mutate(empleo_act = fct_collapse(empleo_act, menos_1 = c("desempleado","menos_1"), 
+                                                       entre_1_4 = "entre_1_4",
+                                                       entre_4_7 = "entre_4_7",
+                                                       mas_7 = "mas_7"))
+```
+
+- A los hombres divorciados los podemos meter con los solteros:
+
+```{r}
+german1 <- german1 %>% mutate(status_personal = fct_collapse(status_personal, 
+                                                       h_div_sol = c("h_divor","h_sol"), 
+                                                       h_cas_viud = "h_casado_viudo",
+                                                       m_div_sep_cas = "m_divor_sep_cas"))
+```
+
+- Podemos agrupar a otros deudores como ninguno o alguno
+
+```{r}
+german1 <- german1 %>% mutate(otros_deudores = fct_collapse(otros_deudores, 
+                                                       ninguno = "ninguno", 
+                                                       alguno = c("coaplicante","aval")))
+```
+
+- A los desempleados los podemos juntar con los incapacitados y poner dos niveles: no trabaja, trabaja
+
+```{r}
+german1 <- german1 %>% mutate(tipo_trabajo = fct_collapse(tipo_trabajo, 
+                                                       no_trabaja = c("desempleado","incapacitado_residente"), 
+                                                       alguno = c("empleado_capacitado","empleado_prof")))
+```
+
+Podemos recalcular las tablas de contingencia después de las transformaciones:
+
+```{r}
+tabla <- with(german1, table(cta_cheques,
+                             his_credito,
+                             proposito,
+                             cta_ahorro,
+                             empleo_act,
+                             status_personal,
+                             otros_deudores,
+                             propiedad,
+                             otros_pagos,
+                             casa,
+                             tipo_trabajo,
+                             telefono,
+                             extranjero,
+                             tipo))
+dim(tabla)
+prod(dim(tabla)) #número de celdas
+mosaicplot(tabla) #vista de las 2,488,320 celdas
+```
+
+Aún parecen ser muchas dimensiones. También calculamos las tablas de contingencia ajustadas:
+
+
+```{r}
+for (i in 1:14) print(margin.table( prop.table(tabla), i))
+```
+
+### Análisis descriptivo
+
+A continuación hay varias preguntas que se podrían formular para guiar un análisis exploratorio:
+
+1. ¿Cuántos créditos buenos y malos se tienen? Se puede ver que la variable tipo tiene un 30% de default.
+
+2. ¿Cuáles son los propósitos de los créditos? Casi la mitad de los créditos corresponden a consumo para el hogar, un poco más del 30% para la adquisición de autos (nuevos y usados) y el resto, poco más del 15% para otros conceptos.
+
+2. ¿Cuál es la relación entre la calificación de crédito y 
+  - tener alguna cuenta de ahorro? 
+
+```{r}
+margin.table(prop.table(tabla),c(1,14))
+```
+
+  - El empleo actual
+```{r}
+margin.table(prop.table(tabla),c(5,14))
+```
+
+  - el tipo de trabajo?
+```{r}
+margin.table(prop.table(tabla),c(11,14))
+```
+
+  - el status personal?, ¿hombre o mujer?
+```{r}
+margin.table(prop.table(tabla),c(6,14))
+```
+
+  - propósito del préstamo?
+```{r}
+margin.table(prop.table(tabla),c(3,14))
+mosaicplot(margin.table(prop.table(tabla),c(3,14)))
+```
+
+3. ¿Cuál es la distribución de las edades, condicional a la calificación de crédito? 
+```{r}
+ggplot(data = german1, aes(edad, geom = "density", fill = tipo)) + 
+  geom_histogram(bins = 50) + 
+  facet_grid(tipo ~ .) + 
+  labs(title="Distribución de edad por tipo de calificación",
+       y = "Frecuencias",
+       x = "Edad")
+```
+En los hisogramas no se ven diferencias significativas en la distribución de edad condicional a la calificación crediticia
+
+4. ¿Cuál es la distribución de los montos de crédito?
+```{r}
+ggplot(data = german1, aes(monto, geom = "density", fill = tipo)) + 
+  geom_histogram(bins = 50) + 
+  facet_grid(tipo ~ .) + 
+  labs(title="Distribución de montos de crédito por tipo de calificación",
+       y = "Frecuencias",
+       x = "Monto (DMK)")
+```
+
+En las gráficas anteriores se puede ver claramente que las distribuciones del monto tienen un sesgo a la derecha, concentrando la mayor parte de los créditos en montos bajos. Con la finalidad de aproximar los datos a normalidad, se puede aplicar una transformación, se puede considerar el logaritmo. Lo mismo sucede con las gráficas de edad y duración.
+
+```{r}
+german1 <- german1 %>% mutate(logmonto = log(monto),
+                              logedad = log(edad),
+                              logduracion = log(duracion))
+ggplot(data = german1, aes(logmonto, geom = "density", fill = tipo)) + 
+  geom_histogram(bins = 50) + 
+  facet_grid(tipo ~ .) + 
+  labs(title="Distribución de (log) montos de crédito por tipo de calificación",
+       y = "Frecuencias",
+       x = "logMonto (logDMK)")
+```
+
+5. ¿Cuál es la relación entre el monto de crédito y la edad? ¿Tiene relación con el propósito del crédito?
+
+```{r}
+ggplot(data=german1,aes(edad, monto, geom="point")) +
+  geom_point(aes(color=proposito)) + 
+  facet_grid(tipo ~ .)
+```
+
+En la gráfica anterior se puede ver usualmente los clientes que no pagan los créditos con mayor frecuencia tienden a ser con frecuencia más jóvenes, aunque en general son más jóvenes los que solicitan créditos en general. No se percibe una clara asociación entre el propósito del crédito y la edad.
+
+
+### Análisis discriminante básico.
+
+Para modelar LDA usaremos sólo las variables que podrían ser consideradas continuas: `duracion`, `monto` y `edad`, y posiblemente `tasa_pagos`, aunque esta variable sólo toma cuatro valores. Como ya vimos, transformamos las variables a logaritmos para aproximarnos mejor a normalidad.
+
+Con variables indicadoras, los supuestos de distribución normal son muy débiles, y no serán consideradas aquí. Sin embargo, las utilizaremos más adelante en regresión logística y en otros modelos no paramétricos. Tamabien podríamos probablemente incluir variables de caracter ordinal asignando una escala de valores. 
+
+```{r}
+cred <- german1 %>%  
+        dplyr::select(logduracion, logmonto, logedad, tasa_pagos, tipo) %>%
+        mutate(tipo = factor(tipo))
+summary(cred)
+cred <- data.frame(cred)
+```
+
+A continuación se ajusta el modelo lineal discriminante, utilizando como distribución inicial las proporciones de cada clase.
+
+```{r}
+lda_lineal <- lda(tipo ~ ., data=cred) #por default usa las probabilidades iniciales de las clases.
+lda_lineal
+qda_quad <- qda(tipo ~., data=cred)
+qda_quad
+```
+
+Para predecir nuevos casos, por ejemplo, debemos especificar los valores de los atributos considerados, por ejemplo:
+
+- logduracion = log(6),log(20)
+- logmonto = log(1500),log(50000)
+- logedad = log(50),log(19)
+- tasa_pagos = 3,2
+
+
+```{r}
+predict(lda_lineal, newdata = data.frame(logduracion = log(c(80,3)),
+                                         logmonto = log(c(15000,5000)),
+                                         logedad = log(c(80,30)),
+                                         tasa_pagos = c(7,5)))
+                                         
+```
+
+Para evaluar el modelo, se aplicará la validación cruzada sugerida por Lachenbrch basada en jackknife o leave-one out para calcular el error de clasificación:
+
+```{r}
+# Esta función evalua el error de  un modelo dejando 1 caso fuera a la vez. categorias es la variable de respuesta en los datos.
+ECM_lachenbruch <- function(modelo,categorias){
+  categorias <- as.factor(categorias) #hay que tener un factor aquí, de otra manera la matriz de confusión no se arma bien
+  neval <- 1   #cuántas dejo afuera
+  n <- modelo$N
+  error <- dim(n)
+  for( k in 1:n){
+    training <- (1:n)[-k] #quita la observación k
+    #Evaluacion lineal
+    m <- update(modelo, data = model.frame(modelo)[training, ])
+    tabla <- table(categorias[k], predict(m, model.frame(modelo)[k, ])$class)
+    error[k] <- (neval - sum(diag(tabla)))/neval
+  }
+  return(100*mean(error))
+}
+ECM_lachenbruch(lda_lineal,german1$tipo)
+ECM_lachenbruch(qda_quad,german1$tipo)
+```
+
+De los resultados anteriores, vemos que el modelo de discriminación cuadrática se desempeña un poco peor que el modelo lineal. Los costos habría que agregarlos a la regla de clasificación por fuera de la estimación, lo que hace un poco enredoso manejar el modelo.
+
+### Clasificación logística
+
+Ahora consideramos la clasificación usando un modelo logítico. Aquí podemos incorporar los costos directamente en la regla de clasificación.  De acuerdo al problema, es más costoso por 5 dar un crédito a un mal cliente que no dar un crédito a un buen cliente. En este problema consideramos al default como el "éxito". Los costos esperados son $5p$ y $1-p$ si no damos el crédito.  Entonces si $5p < 1-p$ esperamos perder menos si prestamos que no prestando. En ese caso, la regla de decisión sería: presta si $6p < 1$ o $p<1/6$. 
+
+Predecimos un "éxito" (es decir, un default o tipo =0) siempre que $p > 1/6$.
+
+Para hacer el ejercicio, voy a quitar las variables que agregué en la sección anterior (no requerimos que sean normales en este caso) y también renombraré `tipo` como `default` para evitar la confusión del nombre con el éxito o fracaso
+
+```{r}
+german2 <- german1 %>% mutate( default = as.factor(tipo)) %>%
+                        dplyr::select(- logmonto, - logedad, - logduracion, -tipo)
+```
+
+Para poder evaluar el modelo con validación cruzada, consideremos separar el conjunto de datos en uno de entrenamiento (900 renglones) y de prueba (los 100 renglones restantes), al azar.
+
+```{r}
+set.seed(10) #para reproducibilidad
+train   <- sample(1:1000,900)
+g2train <- german2[train,]
+g2test  <- german2[-train,]
+ytrain  <- german2$default[train]
+ytest   <- german2$default[-train]
+
+logitm1 <- glm(default ~ ., family = "binomial",data = g2train)
+```
+
+Supongamos que el modelo obtenido es adecuado (podemos proceder a afinarlo). Con este modelo podemos evaluar las probabilidades de default en el conjunto de prueba
+
+```{r}
+ptest <- predict(logitm1, newdata = g2test[,-21], type = "response")
+head(data.frame(ytest, ptest))
+```
+
+Con las probabilidades podemos estimar la matriz de confusión, considerando como default los casos con probabilidad mayor a 1/6
+
+```{r}
+mc_logitm1 <- table(ytest,as.numeric(ptest > 1/6))
+mc_logitm1
+APER <- 100*(mc_logitm1[1,2] + mc_logitm1[2,1])/length(ytest)
+APER  # % de error
+```
+
+### Naïve Bayes
+
+Ahora consideraremos el caso en donde predecimos la variable de default usando sólo las variables categóricas y no las numericas o convirtiendo las numéricas a factores. Este es el caso de naïve Bayes. 
+
+```{r}
+library(e1071)
+german3 <- german1 %>% mutate(duracion = cut(duracion,breaks=10), 
+                              tasa_pagos = as.factor(tasa_pagos),
+                              resid_act = as.factor(resid_act),
+                              no_creditos = as.factor(no_creditos),
+                              num_depen = as.factor(num_depen),
+                              monto = cut(monto,breaks=3),
+                              edad = cut(edad,breaks=5),
+                              default = as.factor(tipo)) %>%
+                      dplyr::select(-logmonto, -logedad, -logduracion, -tipo)
+
+nb1 <- naiveBayes(default ~ ., german3)
+clases <- predict(nb1,german3[,-21])
+
+APER <- sum(diag(table(clases,german3$default)))/1000
+APER
+```
+
+Se puede repetir el ejercicio anterior aplicando validación cruzada para obtener un mejor estimador del error.
+
+### Árbol de clasificación (CART)
+
+Sobre los mismos datos previos, podemos aplicar CART
+
+```{r}
+library(tree)
+arbol <- tree(default ~ ., data=german3, split="gini",mincut=50)
+arbol
+plot(arbol)
+text(arbol,digits=1,xpd =0.1)
+clases <- predict(arbol,german3[,-21],type="class")
+APER <- sum(diag(table(clases,german3$default)))/1000
+APER
+```
+
+
+### Chi-Square Automatic Interaction detection CHAID 
+
+Otro método para clasificar con datos categóricos, basado en la prueba $\chi^2$ de bondad de ajuste. Si la respuesta tiene $r$ categorías, el método maximiza la estadística $\chi^2$ entre las $d$ categorías en la variable de respuesta  y todas las posibles agrupaciones en las categorías de la variable predictora.
+
+```{r}
+library(CHAID)
+chaidm1 <- chaid(default ~ ., data=german3, control = chaid_control(alpha2=0.1))
+chaidm1
+plot(chaidm1)
+clases <-predict(chaidm1,german3[,-21])
+APER <- sum(diag(table(clases,german3$default)))/1000
+APER
+```
+
+```{r}
+library(nnet)
+library(devtools)
+source_url('https://gist.githubusercontent.com/fawda123/7471137/raw/466c1474d0a505ff044412703516c34f1a4684a5/nnet_plot_update.r')
+nnetm1 <- nnet(default ~ ., data=german3, size=15)
+nnetm1
+plot.nnet(nnetm1)
+clases <- predict(nnetm1, german3[,-21], type = "class")
+APER <- sum(diag(table(clases,german3$default )))/1000
+APER
+```
+
+

@@ -1,0 +1,303 @@
+---
+title: "GLM's"
+author: "Jorge de la Vega"
+date: "27 de noviembre de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment=NULL)
+options(scipen=6)
+```
+
+## Ejemplos de Modelos lineales generalizados I {.tabset}
+
+### Regresión logística {.tabset .tabset-fade .tabset-pills}
+
+#### Estimación
+
+Los siguientes datos son una muestra de un estudio de panel de la Dinámica de Ingreso (Mroz, T. (1987): ”The Sensitivity of an Empirical Model of Married Women’s Hours of Work to Economic and Statistical Assumptions,” _Econometrica_, Vol.55, 765-799.). La respuesta es la participación de las mujeres casadas en la fuerza laboral.
+
+Las variables son:
+
+- `lfp`: participación de la esposa en la fuerza laboral
+- `k5`: número de niños menores a 5 años
+- `k618`: número de niños de 6 a 18 años
+- `age`: edad de la esposa
+- `wc`: si la esposa asistió al colegio
+- `hc`: si el esposo asistió al colegio
+- `lwg`: logaritmo del salario estimado de la esposa. El logaritmo del salario estimado de la esposa se calcula como el logaritmo de su sueldo real si trabaja, y si no trabaja, entonces se imputa como el valor de predicción de una regresión de los logs de los salarios sobre los otros predictores para mujeres en la fuerza laboral.
+- `inc`: ingreso de la familia excluyendo el ingreso de la esposa
+
+```{r}
+library(car) # paquete Companion to Applied Regression de Fox & Weisberg (2009)
+data(Mroz)
+str(Mroz)
+head(Mroz)
+```
+
+Ajustamos un modelo logístico. Podemos definir la función liga a usar dentro de la familia. Si no se especifica, se usa la función liga natural
+
+```{r}
+# podemos cambiar link por probit, cloglog
+mod1 <- glm(lfp ~ k5 + k618 + age + wc + hc + lwg + inc,
+            family = binomial(link=probit), data = Mroz)
+```
+
+Los resultados se reportan de manera similar a los modelos de regresión lineal. En la salida se menciona que el parámetro de dispersión $\phi=1$. 
+
+Los `z-values` corresponden a las pruebas de Wald para cada coeficiente, y hace referencia a que la distribución de referencia para las pruebas es la distribución normal, y no la $t$ como en RLM.
+
+La devianza nula y los grados de libertad corresponden al modelo que tiene sólo una constante.La devianza residual corresponde al modelo ajustado. 
+
+También se reporta el número de iteraciones en el método IWLS.
+
+```{r}
+summary(mod1)
+```
+
+Podemos obtener los momios de éxito estimados:
+
+$$ \frac{\hat{\mu}({\bf x})}{1-\hat{\mu}({\bf x})} = \exp(b_0)\exp(b_1x_1)\cdots\exp(b_px_p) $$
+
+Los exponentes de los coeficientes estimados se llaman _factores de riesgo_.
+
+La interpretación es como sigue: si la esposa aumenta su edad en 1 año, y se mantienen los otros predictores constantes, se multiplican los momios de pertenecer a la fuerza laboral por $\exp(b_3)=\exp(-0.062871) = `r exp(-0.062871) `$, reduciendo los momios en 6\%.
+
+Para obtener todos los factores de riesgo y sus respectivos intervalos de confianza, podemos calcular lo siguiente:
+
+```{r}
+#la función confinit calcula intervalos usando la log-verosimilitud en lugar de Wald:
+round(exp(cbind(Estimate = coef(mod1), confint(mod1))), 2)
+```
+
+Por ejemplo, una mujer que fue al colegio tiene momios de trabajar 2.24 veces mayores que una mujer que no fue al colegio, con todos los otros predictores constantes.
+
+#### Análisis de devianza
+
+Para comparar modelos anidados como lo hacemos en los modelos lineales, usamos `anova`. Se compara el cambio en la desvianza y se compara contra $\chi^2_{(glG-glch)}$.
+
+Por ejemplo, quitamos las variables de número de niños y colegio para el esposo y comparamos:
+
+```{r}
+mod2 <- update(mod1,. ~ . -k5 -k618 -hc)
+summary(mod2)
+anova(mod2,mod1,test="Chisq") #primero el modelo chico y luego el grande.
+```
+
+#### Valores ajustados
+
+La función `predict` da predicciones para GLM's. Los valores que devuelve por default son los valores ajustados:
+
+
+```{r}
+# Devuelve los valores ajustados, del predictor lineal:
+head(predict(mod1))
+# Devuelve las probabilidades ajustadas:
+head(predict(mod1,type = "response"))
+```
+
+Podemos obtener la curva logística ajustada:
+
+```{r}
+plot(predict(mod1), predict(mod1,type = "response"),
+     main= "Logística ajustada",
+     xlab = expression(eta(x)), 
+     ylab = expression(mu(x)))
+```
+
+
+### Datos Binomiales {.tabset .tabset-fade .tabset-pills}
+
+Para datos con respuesta binomial, se cuentan los éxitos en $N$ ensayos. Para especificar un modelo binomial en R se puede hacer de varias formas, como ya comentamos antes:
+
+1. Una matriz con dos columnas con número de éxitos $Y$ y el número de fracasos $N-Y$.
+2. La respuesta puede ser la proporción $Y/N$ especificando $N$ en `weights`
+
+Sin importar cómo se especifique, `glm`considera como respuesta a la proporción de éxitos $Y/N$ y la media de la respuesta $\mu({\bf x})$ se interpreta igual que en el modelo binario.
+
+Los siguientes datos corresponden a las votaciones de consultas populares de un nefasto presidente electo (ficticias):
+
+```{r}
+votaciones <- data.frame(
+      colonia = factor(rep(c("BJ","IZ"),c(3,3))),
+      preferencia = factor(rep(c("B","M","A"),2)),
+      votaron = c(91,121,64,214,284,201),
+      no.votaron = c(39,49,24,87,76,25),
+      logit.votacion = log(c(91,121,64,214,284,201)/c(39,49,24,87,76,25)) )
+votaciones
+```
+
+También podemos ver los datos como una tabla de contingencia:
+
+```{r}
+ ftable(xtabs(
+   cbind(votaron,no.votaron) ~ colonia + preferencia ,data=votaciones))
+```
+
+Se puede ajustar este modelo agrupado, o se pueden descomponer todos los conteos en el número total de casos para ajustar un modelo logístico.
+
+Ajustamos un modelo binomial con estas variables, considerando la interacción de la colonia y la preferencia. Noten que el modelo sólo tiene 6 datos y hay 6 parámetros a estimar, este es un ejemplo de un modelo saturado, por eso los residuales son 0:
+
+```{r}
+mod1 <- glm(cbind(votaron,no.votaron) ~ colonia*preferencia, 
+            family=binomial,data = votaciones)
+summary(mod1)
+# Todos los valores son exactamente los observados:
+predict(mod1,type="link")
+```
+
+Podemos quitar las interacciones:
+
+```{r}
+mod2 <- update(mod1,.~. - colonia:preferencia)
+summary(mod2)
+```
+
+
+### Modelos Poisson para conteo {.tabset .tabset-fade .tabset-pills}
+
+Los modelos Poisson surgen en dos contextos diferentes:
+
+1. Cuando se supone que la distribución condicional de la variable de respuesta  dados los predictores es Poisson.
+2. Cuando se analizan asociaciones en tablas de contingencia. En las tablas de contingencia, los conteos son multinomiales, no Poisson, condicionales, pero con una interpretación adecuada de los parámetros (condicionando los totales como ya vimos), los estimadores multinomiales se pueden obtener _como si_ fueran los conteos Poisson. 
+
+Entonces se puede usar el mismo enfoque de modelos GLM se puede usar para regresión Poisson y para modelos loglineales de tablas de contingencia.
+
+#### Estimación
+
+Los siguientes datos (Ornstein, 1976) corresponden a datos de 248 empresas canadienses, en donde cada empresa tiene un cierto número de vínculos (interlocks): estos son empates que una empresa mantuvo en virtud de que los miembros de su Junta de Gobierno y ejecutivos top también sirven como miembros de Juntas o como ejecutivos top en otras empresas del conjunto de empresas que están en los datos.
+
+Interesa hacer la regresión del número de vínculos con respecto a otras características de las empresas: sus activos, la nación controladora, y el sector de operación de la empresa.
+
+```{r}
+data("Ornstein")
+str(Ornstein)
+```
+
+Podemos ver la gráfica de la respuesta no condicional, hay 28 empresas sin vínculos, 19 con 1, 14 con 2, y así sucesivamente:
+
+```{r}
+vinculos <- xtabs(~ interlocks,data=Ornstein)
+vinculos
+plot(vinculos,type="h")
+```
+
+Podemos ajusta un modelo Poisson para estos datos:
+
+```{r}
+mod1 <- glm(interlocks ~ ., family = poisson, data = Ornstein)
+summary(mod1)
+```
+
+Los coeficientes en este modelo se interpretan como efectos en la escala log del conteo, así que hay que exponenciar los coeficientes para producir los efectos multiplicativos en la escala de conteo:
+
+```{r}
+exp(coef(mod1))
+```
+
+Podemos interpretar de la siguiente manera: Para una empresa gringa, mantiene en promedio 46\% de vinculos menos que las canadienses (que es la categoría base).
+
+Para ver los efectos, podemos usar el paquete `effects`. 
+
+- El eje vertical está en la escala del predictor lineal (logaritmo), pero las marcas son las etiquetas de la respuesta. 
+
+```{r}
+library(effects)
+plot(allEffects(mod1))
+```
+
+
+### Modelos loglineales para tablas de contingencia {.tabset .tabset-fade .tabset-pills}
+
+Estos modelos fueron propuestos por Birch en 1963 (Maximum Likelihood in three-way contingency tables, JRSS,B, 25, 220-233).
+
+#### Tablas de 2x2:
+
+Consideremos primero una tabla de contingencia de $2 \times 2$, de todos los doctorados otorgados en ciencias matemáticas en los EUA en 2011:
+
+```{r}
+data("AMSsurvey")
+head(AMSsurvey)
+```
+
+Colapsando a una tabla donde sólo se tome `citizen` y `sex`:
+
+```{r}
+tabla <- xtabs(count11 ~ sex + citizen, data=AMSsurvey)
+tabla
+```
+
+El análisis típico en una tabla de dos dimensiones es probar independencia de renglones y columnas, usando una prueba de bondad de ajuste $\chi^2_{(r-1)(c-1)}$
+
+```{r}
+chisq.test(tabla, correct = F)
+```
+
+Rechazamos la prueba de independencia entre renglones y columnas. Esto quiere decir que la proporción de mujeres  es diferente para gringos y no gringos, o bien que la proporción de no gringos es diferente para hombres y mujeres.
+
+Ajustando un modelo log-lineal: el modelo de independencia no incluye la interacción entre las variables. 
+
+```{r}
+AMS <- as.data.frame(tabla)
+AMS
+mod.indep <- glm(Freq ~ sex + citizen, family=poisson, data=AMS)
+summary(mod.indep)
+```
+
+La devianza residual es 4.5324, que es la diferencia entre el modelo ajustado y el modelo saturado. Este valor es una prueba de que la asociación entre sexo y ciudadadanía es 0. Podemos calcular su significancia:
+
+```{r}
+pchisq(4.5324, df=1, lower.tail = F)
+```
+
+#### Tablas de 3x3:
+
+Incorporando el tipo de institución (`type` se refiere a grupos I para universidades públicas y privadas respectivamente, II y III para grupos II y III, IV para estadística y bioestadística y Va para matemáticas aplicadas), hay muchos más modelos que pueden ser considerados: con factores simples, interacciones de dos y tres variables. 
+
+```{r}
+tabla <- ftable(xtabs(count11 ~ type + sex + citizen, data=AMSsurvey))
+tabla
+```
+
+Para plantear modelos razonables, se debe cumplir el _Principio de marginalidad_: Un modelo que incluye un término de orden alto (como interacciones) también debe incluir los predictires relativos de menor orden de ese término: los efectos principales que componen la interacción.
+
+El modelo más grande es el modelo saturado, y a partir de este se pueden considerar modelos menores eliminando términos, pero cumpliendo el principio de marginalidad. Por ejemplo, podemos ejecutar los modelos en el orden siguiente:
+
+```{r}
+mod.saturado <- glm(count ~ type*sex*citizen, family=poisson, data=AMSsurvey)
+```
+
+A partir del modelo saturado, podemos usar `Anova` para calcular todas las pruebas de modelos conformando el principio de marginalidad (usualmente se llaman pruebas tipo II)
+
+```{r}
+Anova(mod.saturado)
+```
+
+- La tabla se tiene que leer de abajo hacia arriba. La triple interacción y la interacción de `sex:citizen` no son significativas, las otras son diferentes de 0. 
+- La prueba de los efectos principales usualmente son irrelevantes, pues corresponden a las marginales de las variables.
+
+Si actualizamos el modelo quitando los dos últimos términos que no fueron significativos:
+
+```{r}
+mod.1 <- update(mod.saturado, .~ . -sex:citizen - type:sex:citizen)
+summary(mod.1)
+```
+
+La prueba para la devianza residual es 
+
+```{r}
+pchisq(1.9568,df=6,lower.tail = F)
+```
+Esto quiere decir que no hay diferencia entre el modelo saturado y el ajustado, y por lo tanto el modelo ajusta muy bien los datos.
+
+#### Planes de muestreo para modelos loglineales
+
+En general las tablas de contingencia se pueden construir de diferentes modos, pero en todos los casos el modelo Poisson puede ser usado:
+
+1. *Muestreo Poisson*: Tamaño de muestra total aleatorio $n$.
+2. *Muestreo Multinomial*: Se fija el tamaño de muestra total de antemano $n$ y se muestrea en las diferentes celdas hasta alcanzar el tamaño de muestra. En este caso los conteos no son independientes por la restricción de que suman $n$. En este caso la media total queda determinada por el plan de muestreo (la ordenada al origen).
+3. *Muestreo producto-multinomial*: se muestrea tomando igual número de observaciones en alguna de las dimensiones. En este caso, la ordenada al origen y los efectos principales están determinados por el muestreo.
+4. *Muestreo fijando dos niveles*: Se muestrea un número fijo en cada combinación de dos dimensiones, para obtener esquemas de muestreo multinomiales en esas dos dimensiones. En este caso, todos los modelos que se ajusten deben contener los términos `1 + A + B + A:B = A*B`, porque están fijos por el diseño muestral.
+5. *Muestreo retrospectivo (o de control de casos)*: Supongamos que una de las dimensiones $C$ del problema tiene categorías que ocurren de manera rara. Podemos decidir muestrar $n/2$ eventos raros de $C$ y el resto de los no raros. Entonces $C$ funge como una variable de respuesta. Estos modelos deben incluir `1 + C`. Los otros términos del modelo en donde aparece $C$ nos dicen si la respuesta está relacionada con los predictores, y de qué manera.
+

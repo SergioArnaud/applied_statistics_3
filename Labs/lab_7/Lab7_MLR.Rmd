@@ -1,0 +1,182 @@
+---
+title: "Regresión"
+author: "Jorge de la Vega"
+date: "4 de octubre de 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(alr4) #para los datos
+library(dplyr)
+```
+
+#Ejemplo de regresión completo
+
+En este lab veremos qué es lo que tenemos que hacer para ajustar un modelo de regresión lineal múltiple y llegar a conclusiones finales
+
+## Datos: Accidentes de tráfico
+
+Consideremos los datos `Highway`. Estos datos corresponden a un artículo de maestría no publicada de Carl Hoffstedt. Se relacionan a la tasa de accidentes de auto (en accidentes por millón de millas de vehiculos) y su asociación con varios términos potenciales. Los datos incluyen 39 secciones de Highways americanos grandes en el estado de Minnesoya en 1973. El objetivo original de estudio fue entender el impacto de variables de diseño: `acpts`, `slim`, `Sig` y `shld` que estaban bajo control del Departamento de Highways, en los accidentes.
+
+Las variables en los datos son:
+
+- `adt` = conteo de tráfico diario promedio en miles
+- `trks` = volumen de camiones como porcentaje del volumen total
+- `lane` = número total de lineas de tráfico
+- `acpt` = número de puntos de acceso por milla
+- `sigs` = número de intercambios señalizados por milla
+- `itg` =  número de tipos de intercambio de caminos por milla
+- `slim` = límite de velocidad en 1973
+- `len` = longitud de segmentos de Highway en millas
+- `lwid` = ancho de lines, en pies
+- `shld` = ancho del acotamiento en pies
+- `htype` = Una variable indicadora del tipo de camino o la fuente de fondeo del camino: 
+    - "mc" para colectores mayores,  
+    - "fai"para highways interestatales Federales
+    - "pa" para highways de arteria principal
+    - "ma" para highways arteriales mayores 
+- `rate` tasa de accidentes de 1973 por millón de millas de vehículos
+
+
+```{r}
+head(Highway)
+str(Highway)
+```
+
+### Paso 1: ve los datos
+
+Lo primero que hay que hacer es examinar la gráfica de dispersión de puntos, y seleccionar algunas transformaciones a los predictores originales con la intención de (1) lograr normalidad de los datos
+
+```{r}
+hw <- Highway %>% select(-htype)
+pairs(hw,col=Highway$htype) # No se grafica la variable categórica "htype"; se usa para marcar los datos
+summary(Highway)
+```
+
+Algunas observaciones: 
+
+1. La variable `sigs` tiene muchos 0s, que corresponden a los caminos que no tienen intercambios señalizados. Entonces se puede sustituir la variable transformando por $(sigs1 = sigs*len+1)/len$ para que tome valores positivos que pueden transformarse con potencias
+
+2. Podemos ver que las variables `lwid` y `lane`, aun sin ser categóricas, toman sólo algunos valores (la primera sólo valores en 11-13 y la segunda valores 2-4-6-8). Con poca variabilidad, pueden explicar muy poco de la respuesta. Podemos ya sea considerarlas factores, o removerlas del análisis
+
+3. Se mecionó en clase que las variables $v$ que tienen $max(v)/min(v) \geq 10$ se pueden transformar a logaritmos para escalar los números. En particular `adt` `acpt` y `len` cumplen la condición.
+
+4. Podemos ver en el último renglón de la matriz, que hay algunas relaciones marginales modestas con la respuesta.
+
+5. Muchos de los predictores tienen algún tipo de asociación entre ellos.
+
+Para atender las observaciones anteriores, hacemos las siguientes transformaciones y volvemos a graficar
+
+```{r}
+hw <- hw %>% mutate(sigs1 = (sigs*len+1)/len,
+                    log_adt = log(adt),
+                    log_acpt = log(acpt),
+                    log_len = log(len)) %>%
+             select(-sigs,-acpt,-len,-lwid,-lane,-adt)
+hw <- hw[,c(5,1:4,6:9)]  #reordena las variables en el dataframe
+pairs(hw,col=Highway$htype)
+```
+
+### Paso 2: Aplica regresión "gráfica"
+
+Les voy a dar las ideas básicas desde un punto de vista aplicado: Supongan que la verdadera relación entre la variable de respuesta y los predictores a través de la siguiente relación: 
+\[ E(y|X) = g(\beta'X) \]
+para alguna función $g$ (completamente desconocida y no especificada). Si esto es cierto y $y$ depende de $X$ sólo a través de la combinación lineal de $y$ vs $\beta'X$, entonces la gráfica de $\{y,\beta'X \}$ nos puede dar un indicio de quién es $g$. Las condiciones para que este resultado (Li y Duan 1989) funcione son las siguientes:
+
+1. Si los predictores están linealmente relacionados, o aproximadamente la relación entre los predictores es lineal en el scatterplot, o mejor aun, son mnormales, entonces podemos usar la regresión como la combinación lineal que necesitamos. 
+
+2. Dado lo anterior, las transformaciones de los predictores deben buscar linealizar ó normalizar la relación entre predictores. Esta tarea puede ser laboriosa sin herramientas interactivas, porque hay que hacer muchas gráficas. 
+
+Por ejemplo, en el scatterplot de los datos que tenemos, particularmente las variable `itg` y `sigs1` al relacionarse con las otras variables muestra patrones no lineales. Podemos intentar transformando para ver si mejora la relación lineal:
+
+```{r}
+hw <- hw %>% mutate(itg2 = sqrt(itg),  #experimentando llegué a esta tarnsformación
+                    log_sigs1 = log(sigs1),
+                    htype = Highway$htype) %>%
+            select(-itg,-sigs1)
+pairs(hw, col=Highway$htype)
+```
+
+
+### Paso 3: Ajusta el modelo de regresión y grafica $y$ vs $\hat{y}$.
+
+En este paso podemos ver cuál sería la función $g$ a escoger, lo que sugeriría la transformación de la variable de respesta. Si la gráfica muestra  una clara tendencia no lineal, entonces la respuesta debe ser transformada para corresponder a esa relación no lineal. 
+
+
+```{r}
+m1 <- lm(rate ~ ., data=hw)  # incluye al factor que habíamos sacado. Estos factores usualmente no se transforman
+summary(m1)
+plot(hw$rate,fitted(m1))
+lw1 <- loess(hw$rate ~ fitted(m1),span = 0.15)
+j <- order(hw$rate)
+lines(hw$rate[j],lw1$fitted[j],col="red")
+```
+
+La transformación de la respuesta puede ser sugerida por la transformación de Box-Cox. Podemos obtener la potencia $\lambda$ del siguiente modo:
+
+```{r}
+a <-boxCox(m1)
+a$x[which(a$y==max(a$y))]
+```
+
+Entonces la transformación sugerida para la respuesta es $\lambdahat \approx -0.02$ y esta transformacion incluye en su intervalo de confianza al logaritmo, así que podemos transformar la respuesta y volver a ajustar el modelo:
+
+```{r}
+hw <- hw %>% mutate(log_rate =  log(rate),
+                    htype = Highway$htype)
+
+m2 <- lm(log_rate ~ . -rate, data=hw)
+summary(m2)
+plot(hw$log_rate, fitted(m2))
+lw2 <- loess(hw$log_rate ~ fitted(m2),span = 0.15)
+j <- order(hw$log_rate)
+lines(hw$log_rate[j],lw2$fitted[j],col="red")
+```
+
+Este modelo parece ser suficientemente adecuado para ajustar, aunque el coeficiente de determinación es menor que el del modelo m1. Previo a la última transformación, quizá sería adecuado analizar si no hay outliers y puntos influenciales que estén alterando el ajuste.  Podemos analizar los residuales como siguiente paso, en el modelo m1. 
+
+```{r}
+residualPlots(m1)
+residualPlots(m2)
+```
+
+Una variación de las gráficas de residuales, son las gráficas de modelos marginales. Esta función hace una prueba de especificación: agrega un término cuadratico a la relación entre los predictores y los residuales para verificar si la relación es curva o no. 
+
+```{r}
+residualPlots(m1)
+residualPlots(m2)
+```
+
+También podemos qq-plots, que están adaptados al caso de RLM
+```{r}
+qqPlot(m1,id.n=3) #identifica las tres observaciones con los residuales más grandes
+qqPlot(m2,id.n=3)
+```
+
+
+Por último, podemos anañizar los posibles puntos infuenciales:
+```{r}
+influenceIndexPlot(m2)
+influencePlot(m2) #combina los residuales estudentizados con distancias de Cook y valores de la matriz sombrero.
+```
+
+Al parecer podemos intentar rehacer el análisis eliminando la observación 34, y posiblemente tengamos un mejor ajuste
+
+```{r}
+hw34 <- hw[-34,]
+m2a <- lm(log_rate ~ . - rate , data=hw34)
+summary(m2a)
+plot(hw34$log_rate, fitted(m2a))
+boxCox(m2a)
+```
+
+En este último modelo podemos ver que algunos predictores no son significativos, por lo que podemos evaluar eliminarlos, considerando el ajuste de todos los modelos con estos predictores para obtener el mejor.
+
+```{r}
+step(m2a)
+```
+
+El modelo sugerido es el que tiene el AIC más pequeño.

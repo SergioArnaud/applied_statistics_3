@@ -1,0 +1,519 @@
+---
+title: "Tarea 3"
+author: "Jorge Rotter, Sergio Arnaud"
+date: "10/10/2018"
+output: 
+  html_document: default
+  pdf_document:
+    latex_engine: lualatex
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{mdsymbol}
+
+---
+
+```{r message=FALSE, echo=FALSE}
+library(tidyverse)
+library(qqplotr)
+library(forecast)
+library(broom)
+library(plotly)
+library(leaps)
+library(GGally)
+library(readxl)
+library(pls)
+```
+
+## Componentes principales
+
+### Pregunta 1
+
+Si dos variables $X$ y $Y$ tienen covarianza $S = \begin{pmatrix} a && b \\ c && d \end{pmatrix}$,  muestre que cuando $c \neq 0$, la primera componente principal está dada por 
+$$
+\sqrt{\frac{c^2}{c^2+(V_1-a)^2}}X+\frac{c}{|c|}\sqrt{\frac{(V_1-a)^2}{c^2+(V_1-a)^2}}Y
+$$
+donde $V_1$ es la varianza explicada por la primera componente principal.
+
+### Pregunta 3
+
+Considere los datos en el archivo `T8-5.DAT` correspondientes a un tramo censal. Suponga que las observaciones en la variable $X5$ = valor de la mediana de hogares fue registrada en unidades de diez miles más que de cientos de miles de dólares (es decir,  multiplique todos los datos listados en la sexta columna por 10).
+
+En cada caso, compare las estimaciones con los datos en diez miles y cientos de miles (son dos matrices de covarianzas) para las  componentes pincipales, trate de obtener una interpretación y de explicar el efecto de cambiar de escala. 
+
+```{r message=F}
+col_names_censo <- c('poblacion', 'p_profesional', 'p_empleados_m16',
+                     'p_empleados_gob', 'mediana_hogares')
+censo <- read_table('./data/T85.DAT', col_names=col_names_censo)
+rm(col_names_censo)
+
+censo_escala2 <- censo %>%
+  mutate(mediana_hogares = 10*mediana_hogares)
+
+pc_orig <- prcomp(censo, scale=F) %>%
+  print()
+summary(pc_orig)
+pc_nuevo <- prcomp(censo_escala2, scale=F) %>%
+  print()
+summary(pc_nuevo)
+```
+
+En la escala original, la primera componente principal explica el 74% de la varianza. Le asigna el coeficiente de más peso a `poblacion`, pero salvo por `mediana_hogares`, las otras variables tienen pesos moderados y similares.
+
+Al hacer el cambio de escala en `mediana_hogares`,  sin embargo, la primera componente se vuelve casi `mediana_hogares` por si sola, pues los demás coeficientes son casi cero. Esto puede explicarse porque componentes principales está pensado para explicar la mayor varianza posible, y en esta nueva escala, como $\textrm{Var}(10X_6)=100\textrm{Var}(X_6)$, la varianza aumenta significativamente, y también lo hace en comparación con las demás variables, como podemos ver usando
+
+```{r}
+apply(as.matrix(censo), 2, sd)
+apply(as.matrix(censo_escala2), 2, sd)
+```
+
+### Pregunta 5
+
+Consideren la matriz de correlaciones dada abajo. Los datos originales corresponden a las mediciones de 8 variables de química  sanguínea de 72 pacientes en un estudio clínico. (Jolliffe, 2002). La matriz de correlaciones de las variables `rblood, plate, wblood, neut, lymph, bilir, sodium y potass`,  en ese orden, está dada en $S$, y la desviación estándar de cada  variable en  $\mathbf{\sigma}$.
+
+Aplique componentes principales a la matriz de covarianzas y a la matriz de correlaciones y explique las diferencias.
+Basado en la observación anterior, ¿sobre qué debería hacerse el análisis?
+
+
+```{r message=FALSE}
+R <- read_csv('./data/5-S.csv')
+sigma <- c(0.371, 41.253,  1.935,  0.077,  0.071,  4.037,  2.732,  0.297)
+names(sigma) <- names(R)
+
+S <- t((t(as.matrix(R) * sigma)*sigma))
+
+pc_S <- princomp(covmat=as.matrix(S), cor=F) 
+pc_R <- princomp(covmat=as.matrix(R), cor=T)
+
+pc_S$loadings
+summary(pc_S)
+pc_R$loadings
+summary(pc_R)
+
+```
+
+Las componentes principales, por construcción, están hechas para explicar el mayor porcentaje de la varianza. Por lo tanto, cuando se utiliza $S$, como una variable (`plate`) tiene muchísima más variabilidad que las demás, la primera componente principal le asignará un coeficiente muy grande.
+
+Aún más notorio es al comparar la proporción de la varianza que explica cada componente: cuando se utilizan las covarianzas,  la primer componente principal explica casi toda. Peor: para explicar la misma proporción con el modelo de correlaciones se necesitan siete de las ocho componentes.
+
+El análisis usando $S$ sólo dice lo que podíamos ver desde $\mathbf{\sigma}$: que `plate` varía mucho, y en este sentido es mejorel  de $R$. Sin embargo, hay que ser cuidadosos al interpretar porque los de $R$ son de las variables estandarizadas, que están en desviaciones desde la media y no las medidas originales.
+
+## Regresión lineal
+
+###  Pregunta 7
+
+Considere los datos sobre venta de casas en `T7-1.DAT`. Este archivo tiene las siguientes variables: 
+
+* $X_1$ = tamaño de construcción (en 100 $\textrm{ft}^2$)
+* $X_2$ = precio de valuación (en miles de USD) 
+* $Y$ = precio de venta (en miles de USD) 
+
+Estime el modelo de regresión lineal $\mathbf{Y} = \mathbf{\beta'x}+\mathbf{\varepsilon}$.  Haga el diagnóstico del modelo sobre los residuales. 
+
+```{r message=F}
+casas <- read_csv('./data/t71.csv')
+casas_lm <-lm(p_venta~tamaño+p_valuacion, data=casas) 
+
+casas_tidy <- tidy(casas_lm)
+casas_glance <- glance(casas_lm)
+```
+Parece ser que la valuación anterior no es estadísticamente significativa. Además, $R^2=0.8344$ y $R^2_{\textrm{aj}}=0.8149$, por lo que el modelo explica buena parte de la varianza. 
+
+Primero queremos buscar no-linealidad en los datos a través de una gráfica de residuales contra valores ajustados:
+
+```{r message=F}
+
+studentized <- rstudent(casas_lm)
+casas_lm <- augment(casas_lm) %>%
+  mutate(.student.resid = studentized) 
+rm(studentized)
+
+casas_lm %>%
+  ggplot(aes(x=.fitted, y=.resid)) +
+  geom_point() +
+  geom_smooth() +
+  geom_smooth() +
+  labs(x='Fitted values', y='Residuals')
+
+casas_lm %>%
+  ggplot(aes(x=.fitted, y=sqrt(abs(.std.resid)))) +
+  geom_point() +
+  geom_smooth() +
+  ggtitle('Scale-location') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x='Fitted values', y=expression(sqrt(.std.resid)))
+
+```
+
+Aunque la LOESS parece tener forma de u en cerca de 75,pero en general la dispersión de los puntos no parece seguir patrones y la varianza se ve más o menos constante. 
+
+Queremos concentrarnos en un valor que puede ser problemático porque se ve lejos de los demás.  Aprovechando que son sólo dos variables, podemos hacer una gráfica de dispersión para corroborar que efectivamente está lejos de los demás puntos.
+
+```{r}
+casas_lm %>%
+  ggplot(aes(x=tamaño, y=p_valuacion)) +
+  geom_point()+ 
+  ggtitle('Predictor space') +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Para medir la influencia del punto aunque sea visualmente, 
+```{r}
+casas_lm %>%
+  ggplot(aes(x=1:20, y=.cooksd)) +
+  geom_point() +
+  geom_line() +
+  labs(x='Observation number', y="Cook's Distance")
+
+casas_lm %>%
+  ggplot(aes(x=1:20, y=.hat)) +
+  geom_point() +
+  geom_line()+
+  labs(x='Observation number', y='Leverage')
+
+p <- casas_lm %>%
+  ggplot(aes(x=.hat, y=.student.resid)) +
+  geom_point(aes(size=.cooksd)) +
+  labs(title='Influence plot', 
+       x='Leverage', 
+       y='Studentized residuals', 
+       size="Cook's Distance") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggplotly(p)
+```
+
+La distancia de Cook indica que la observación 16 podría tener mucha influencia sobre el modelo, y el apalancamiento confirma que es por estar lejos de las demás en el espacio de variables. Sin embargo, en la gráfica de influencia no se ve que el el valor de la respuesta esté muy lejos de la tendencia.
+
+
+Para buscar correlación entre los errores,
+
+```{r}
+casas_lm %>%
+  ggplot(aes(x=1:20, y=.resid)) +
+  geom_line() +
+  geom_point() +
+  labs(x='Observation number', y='Residuals')
+
+Acf(casas_lm$.resid)
+```
+
+Y parece que no hay correlación significativa entre errores. Para verificar que se distribuyan normal y poder hacer inferencia tranquilamente, hacemos una qqplot
+
+```{r}
+casas_lm %>%
+  ggplot(aes(sample=.student.resid)) +
+  geom_qq_band(alpha=0.5, distribution='norm') +
+    #geom_qq_band(alpha = 0.5, distribution='t', dparams=17) +
+  stat_qq_line() +
+  stat_qq_point() +
+  labs(x = "Theoretical quantiles", y = "studentized residuals")
+  
+```
+
+Aunque los puntos no forman una línea muy recta en las colas, sólo uno se sale de los intervalos de confianza, lo cual es normal para una prueba al 5% de significancia sobre 20 datos. Nos damos por satisfechos suponiendo normalidad.
+
+
+b. Obtenga un intervalo de predicción del 95% para el precio de venta $Y_0$ usando $X_1 =17$ y $X_2 =46$.
+
+
+```{r}
+
+x0 <- c(1, 17, 46)
+X <- casas %>%
+  mutate(const=1) %>%
+  select(const, tamaño, p_valuacion) %>%
+  as.matrix()
+Y <- casas$p_venta
+
+s2 <- casas_glance$sigma^2
+beta_gorro <- casas_tidy$estimate
+
+exts <- qt(0.95/2, 20-2-1, lower.tail = FALSE)*sqrt(s2*(1+t(x0)%*%solve(t(X)%*%X)%*%x0))
+
+x0%*%beta_gorro-exts
+x0%*%beta_gorro+exts
+
+
+```
+
+Realice una prueba LRT sobre $ H_0 : \beta_2 = 0$ con nivel de significancia de $\alpha= 0.05$ 
+```{r}
+
+modelo_H0 <- lm(p_venta ~ tamaño, data=casas)
+modelo_Ha <- lm(p_venta ~ tamaño+p_valuacion, data=casas)
+
+anova(modelo_H0, modelo_Ha)
+glance(modelo_Ha)
+
+F_stat <- ((205.3-205)/(18-17))/glance(modelo_Ha)$sigma^2 #(Leí los numeritos de las llamadas de arriba)
+p_value <- 1-pf(F_stat, 1, 17)
+p_value
+```
+
+No hay evidencia para rechazar la hipótesis nula, por lo que nos quedamos con el modelo que no incluye la valuación pasada. 
+
+Obtenga la gráfica de la $C_p$ de Mallows para este problema. 
+```{r}
+cp <- regsubsets(p_venta~tamaño+p_valuacion, data=casas) %>%
+  summary() %>%
+  '$'(cp)
+data_frame(p=1:2, cp=cp) %>%
+  ggplot(aes(p,cp)) +
+  geom_point() +
+  geom_abline(aes(slope=1,intercept=0))
+
+```
+
+Una vez más, indica que nos quedemos con el modelo más pequeño.
+
+
+### Pregunta 9
+
+```{r echo=FALSE}
+rm(list=ls())
+```
+
+El *Berkeley Guidance Study* fue un estudio hecho a través del tiempo para seguir a un grupo de niños y niñas desde que nacieron en Berkeley entre enero de 1928 y junio de 1929, hasta al menos los 18 años. Los datos se encuentran en el archivo `BGSall.DAT`.
+
+Para las niñas, obtengn las estadísticas sumarias usuales (medias, desviaciones estándar y correlaciones) para todas las variables, excepto Case y Sex. Obtenga la matriz de *scatterplots* para las variables de la edad 2, las variables de edad 18 y `HT18`. Resuma la información que se pueda extraer de la gráfica.
+
+```{r}
+colnames <- c('Sex', 'WT2', 'HT2', 'WT9', 'HT9', 'LG9', 'ST9', 
+              'WT18', 'HT18', 'LG18', 'ST18', 'soma', 'case')
+berkeley <- read.table('./data/BGSall.DAT', skip=24, col.names=colnames) %>%
+  as_data_frame()
+rm(colnames)
+
+women_mean <- berkeley %>% 
+  filter(Sex==1) %>%
+  select(-Sex, -soma) %>%
+  colMeans()
+
+women_cor <- berkeley %>% 
+  filter(Sex==1) %>%
+  select(-Sex, -soma) %>%
+  cor()
+
+women_sd <- berkeley %>% 
+  filter(Sex==1) %>%
+  select(-Sex, -soma) %>%
+  as.matrix() %>%
+  apply(2, sd)
+
+ggpairs(data = berkeley,
+        mapping=ggplot2::aes(colour=as.factor(Sex)),
+        columns=2:12,
+        title='Berkeley Study Group'
+        )
+```
+
+Hay correlación positiva entre `HT18` y casi todas las variables, particularmente la estatura a los dos años y a los nueve. 
+
+Ajuste el modelo de regresión lineal
+\[
+\textrm{HT18}|\mathbf{X} = \alpha_0 + \alpha_1\textrm{WT2} + 
+\alpha_2\textrm{HT2} + \alpha_3\textrm{WT9} + 
+\alpha_4\textrm{HT9} + \alpha_5\textrm{LG9} + 
+\alpha_6\textrm{ST9} + \epsilon
+\]
+suponiendo que la varianza es constante y dé los estimados y los errores
+estándar para todos los parámetros, así como el valor del coeficiente de determinación.
+
+```{r}
+bk_model <- lm(HT18~WT2+HT2+WT9+HT9+LG9+ST9, data=berkeley)
+tidy(bk_model)
+glance(bk_model)$adj.r.squared
+```
+
+Muestre numéricamente que $R^2$ es el mismo valor que el coeficiente de correlación entre `HT18` y los valores ajustados de la ecuación de la pregunta anterior. Haga una gráfica de la respuesta contra los valores ajustados, y dé una interpretación visual del coeficiente de determinación.
+
+```{r}
+r_squared <- glance(bk_model)$r.squared
+bk_model_aug <- bk_model %>%
+  augment()
+corr_calc <- cor(bk_model_aug$HT18, bk_model_aug$.fitted)^2
+
+r_squared/corr_calc
+
+bk_model_aug %>%
+  ggplot(aes(HT18, .fitted)) +
+  geom_point() +
+  geom_smooth(method='lm', se = F)
+
+```
+
+El valor de $R^2$  dice que la recta explica cerca del 53% de la variabilidad en las observaciones, cosa que vemos en que los puntos están muy dispersos al rededor de la línea.
+
+De las unidades de medición de cada uno de los coeficientes de regresión estimados.
+
+  * $\alpha_1$, $\alpha_3$ y $\alpha_6$ no tienen unidades
+  * $alpha_2$, $\alpha_4$ y $\alpha_5$ están en $\textrm{kgcm}^{-1}$
+
+Obtenga pruebas de que cada coeficiente es igual a 0, y dar el valor de la estadística de prueba, su p−valor, y un breve resumen del resultado.
+
+Haciendo las pruebas margianles:
+```{r}
+summary(bk_model)
+```
+
+Los valores p indican que sólo podemos rechazar la hipótesis de coeficientes nulos con confianza superior a 95% en `WT2, HT9, LG9 y ST9`.
+
+Probar la hipótesis de que los predictores a edad 2 no son necesarios en el modelo (i.e. prueba que $NH : \alpha_1 = \alpha_2 = 0$ versus la alternativa general).
+
+```{r}
+anova(lm(HT18~WT9+HT9+LG9+ST9, data=berkeley),
+      bk_model)
+```
+
+La estadística F da suficiente evidencia para rechazar la hipótesis nula con 97% de confianza, indicando que es mejor el modelo con las variables a los dos años.
+
+De intervalos de confianza del 95 % para $\alpha_4$ y para $\alpha_4 - \alpha_2$ de la ecuación.
+
+Suponiendo normalidad y homocedasticidad, los coeficientes siguen
+\[
+\mathbf{\hat{\alpha}} \sim \mathcal{N}(\mathbf{\alpha}, \sigma^2(X^\top X)^{-1})
+\]
+
+Por lo que podemos dar intervalos simultáneos
+```{r}
+
+alpha <- bk_model$coefficients
+s_alpha <- vcov(bk_model)
+
+print('Intervalo para alpha 4')
+lim_int <- sqrt(s_alpha[5,5])*sqrt((6+1)*pf(6+1,136-(6+1),0.05, lower.tail=F))
+alpha[[4]] + c(-1,1)*lim_int
+
+print('')
+print('Intervalo para alpha 4 - alpha 2')
+a <- c(0, 0, -1, 0, 1, 0, 0)
+centro <- a%*%alpha
+lim_int <- sqrt(t(a)%*%s_alpha%*%a)* sqrt(((6+1)*(136-1)/(136-(6+1)))*pf(6+1,136-(6+1),0.05, lower.tail=F))
+c(centro -lim_int, centro+lim_int)
+```
+
+
+### Pregunta 10
+
+Con datos de alguna fuente de datos abiertos, proponer (a) un modelo de regresión múltiple, y (b) un modelo de componentes principales. En cada caso, realizar el análisis correspondiente, y elaborar un reporte del análisis en cada caso, de no más de una cuartilla en cada caso.
+
+
+```{r}
+rm(list=ls())
+power_plant <- read_excel('./data/CCPP/Folds5x2_pp.xlsx')
+names(power_plant) <- str_replace_all(names(power_plant), ' ', '_')
+
+pp_models <- regsubsets(PE~., data=power_plant, nvmax = 2500)
+
+data_frame(p=1:4, cp=summary(pp_models)$cp) %>%
+  ggplot(aes(p,cp)) +
+  geom_point() +
+  geom_line()
+
+# Decidimos quedarnos con el de tres 
+summary(pp_models)
+pp_model_cp <- lm(PE~AT+V+RH, data=power_plant)
+
+anova(lm(PE~., data=power_plant))
+pp_model_anova <- lm(PE~., data=power_plant)
+
+glance(pp_model_cp)
+glance(pp_model_anova)
+
+anova(pp_model_cp, pp_model_anova)
+```
+
+Ambos modelos tienen $R^2$ y AIC similares, pero la prueba F declara mejor al modelo completo.
+
+```{r}
+pp_model_data <- pp_model_anova %>%
+  augment()
+
+pp_model_data %>%
+  ggplot(aes(x=.fitted, y=.resid)) +
+  geom_point(alpha=0.5) +
+  geom_smooth()
+```
+
+Se alcanza a distinguir que en valores pequeños los residuales son mayores. 
+
+```{r}
+pp_model_data %>%
+  ggplot(aes(1:9568, .cooksd)) +
+  geom_point() +
+  geom_line()
+
+pp_model_data %>%
+  ggplot(aes(1:9568, .hat)) +
+  geom_point() +
+  geom_line()
+```
+
+Ningún punto parece tener demasiado alto apalancamiento. 
+
+```{r}
+pp_model_data %>%
+  ggplot(aes(sample=.std.resid)) +
+  geom_qq_band(alpha=0.5, distribution='norm') +
+    #geom_qq_band(alpha = 0.5, distribution='t', dparams=17) +
+  stat_qq_line() +
+  stat_qq_point() +
+  labs(x = "Theoretical quantiles", y = "standarized residuals")
+```
+
+Pero los errores definitivamente no son normales, por lo que no podemos
+hacer inferencia sobre los coeficientes.
+
+Haciendo la descomposición en componentes principales
+
+```{r}
+pp_pc <- power_plant %>%
+  select(-PE) %>%
+  prcomp(scale=T) %>%
+  print()
+
+summary(pp_pc)
+```
+
+Aunque la primera componente principal es difícil de interpretar, la segunda tiene una interpretación que coincide con lo dicho en la documentación de los datos: separa `vacumm` —que afecta a las turbinas de vapor— , de las tres variables ambientales, que afectan a las de gas.
+
+Aunque se necesitan tres de las cuatro para explicar la variabilidad de los predictores, vamos a ver cuántas se necesitan para explicar la de la respuesta.
+
+```{r}
+pcr_model <- pcr(PE~., data=power_plant)
+
+summary(pcr_model)
+```
+
+Con la variabilidad de la respuesta nos va peor. 
+
+```{r}
+predplot(pcr_model)
+validationplot(pcr_model, val.type = 'MSEP')
+```
+
+Sin embargo, en términos del error medio es parece que quedarnos con dos componentes es lo mejor. Hacemos la prueba formal
+
+```{r}
+predictores_cp <- pp_pc$x %>%
+  as_data_frame() %>%
+  mutate(PE=power_plant$PE) %>%
+  select(PE, everything()) %>% 
+  print()
+names(predictores_cp) <- c('PE', 'PC1', 'PC2', 'PC3', 'PC4')
+
+pcr_model_full <- lm(PE~.,data=predictores_cp)
+  
+summary(pcr_model_full)
+
+pcr_model_full %>%
+  augment() %>%
+  ggplot(aes(sample=.std.resid)) +
+  geom_qq_band(alpha=0.5, distribution='norm') +
+  stat_qq_line() +
+  stat_qq_point() +
+  labs(x = "Theoretical quantiles", y = "standarized residuals")
+  
+```
+
+Lamentablemente, no podemos hacer inferencia sobre los coeficientes porque el error no es normal. 

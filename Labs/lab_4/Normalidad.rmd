@@ -1,0 +1,177 @@
+---
+title: "Normalidad"
+author: "Jorge de la Vega"
+date: "6 de septiembre de 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.height = 6,fig.width = 7)
+```
+
+# Evaluando la normalidad de los datos.
+¿Porqué es importante considerar la normalidad de los datos?
+
+- Muchos métodos asumen una distribución normal multivariada, entonces la calidad de las inferencias que se pueda hacer depende de qué tan separados están los datos de la normal.
+- Es importante verificar si los datos violan este supuesto y de qué manera. (outliers, bondad de ajuste). 
+- Sin embargo, no hay una prueba "global" de normalidad en más de dos dimensiones. Pero varios de los problemas de no normalidad se pueden ver en las marginales y en los diagramas de dispersión de puntos.
+- Basado en las propiedades de la distribución normal, podemos explorar en estos ámbitos:
+
+  - ¿Cómo se ven las marginales?
+  - ¿Se cumple aproximadamente la regla empírica (68%,95%,99% a una, dos y tres desviaciones de la media, respectivamente)?
+  - ¿Cómo se ven algunas combinaciones lineales de las variables?
+  - ¿Cómo se ven los diagramas de dispersión, sí asemejan elipsoides?
+  - ¿Se pueden identificar outliers y sus posibles causas?
+
+## Ejercicios
+
+1. Los datos en el archivo {\tt T15.DAT} en Piazza corresponden a los siguientes conceptos de 42 medidas de variables de contaminación del aire en Los Ángeles en diferentes días:
+- Viento (x~1~)
+- Radiación solar (x~2~)
+- CO (x~3~)
+- NO (x~4~)
+- NO~2~ (x~5~)
+- O~3~ (x~6~)
+- HC (x~7~)
+
+```{r}
+datos <- read.delim("https://piazza.com/class_profile/get_resource/jkraoi4gb2l77m/jlrg4j8bzhy5yb",sep = "",header = F)
+names(datos) <- paste0("x",1:7) #pone los nombres a las variables.
+```
+Podemos verificar para cada variable la regla empírica mencionada arriba. La siguiente función estandariza las variables y calcula las proporciones de observaciones que están entre más menos 1, 2 y 3 desviaciones estándares
+
+```{r}
+regla.empirica <- function(x,grafica=T,titulo){
+    # función para evaluar la regla empírica y hacer una grafica diagnóstico
+    z <- (x - mean(x))/sd(x)  #normaliza
+    n <- length(z)
+    #calcula la proporción de oservaciones a 1,2,3 desviaciones estándar
+    props <- c(sd1=length(which(z > -1 & z < 1))/n,
+               sd2=length(which(z > -2 & z < 2))/n,
+               sd3=length(which(z > -3 & z < 3))/n)
+    if(grafica==T){
+    plot(z,xlab="indice",ylab="valores estandarizados",ylim=c(-4,4),
+         main=titulo)
+    abline(h=0)
+    abline(h=c(-1,1), col = "green")
+    abline(h=c(-2,2), col = "yellow")
+    abline(h=c(-3,3), col = "red")
+    text(n,-c(-4,-3.6,-3.2),paste0(round(100*props,3),"%"),cex=.75)
+    }
+    return(props=props)
+}
+
+par(mfrow=c(2,4))
+ReglaEmpirica <- list(NULL)
+for(i in 1:7) ReglaEmpirica[[i]] <- regla.empirica(datos[,i],titulo=names(datos)[i])
+```
+
+En ninguna de las gráficas se observan outliers, y vemos que en varias gráficas no se cumple la proporción esperada (excepto x~3~ que es cercana). Más adelante volveremos sobre el tema de los outliers.
+ 
+Podemos graficar las densidades (o histogramas) de todos los datos. Conviene revisar cuáles son las opciones de la estimación de la densidad, pero eso se analiza más en No Paramétrica. 
+
+```{r, fig.height=5}
+par(mfrow=c(2,4))
+for(i in 1:7)plot(density(datos[,i]), main = names(datos)[i], xlab=names(datos)[i])
+```
+
+Las densidades de algunas variables parecen bimodales(x2,x6) o trimodales (x3,x7), pero puede deberse al ajuste de la curva de densidad. También podemos hacer qqplots, en este caso tenemos más de 20 observaciones, pueden ser informativos.
+
+```{r}
+par(mfrow=c(2,4))
+for(i in 1:7){
+  qqnorm(datos[,i], main = names(datos)[i], xlab=names(datos)[i])
+  qqline(datos[,i]) #linea de referencia en cada gráfica
+}
+```
+
+En este caso se puede ver que x2, x3, x5 y x6 se alejan de la normalidad. 
+Otra opción es incorporar una banda de confianza basada en una prueba de correlación.Podemos medir la correlación de los puntos en el qqplot para obtener que tan "lineal" resultan los datos.
+
+```{r}
+library(dplyr)
+library(ggpubr)
+library(gridExtra) #para acomodar las gráficas en una matriz
+grafs <- list(NULL)
+for(i in 1:7)grafs[[i]] <- ggqqplot(datos[,i])
+grid.arrange(grafs[[1]],grafs[[2]],grafs[[3]],grafs[[4]],
+             grafs[[5]],grafs[[6]],grafs[[7]], nrow=2)
+```
+
+
+```{r}
+correlaciones <- numeric()
+for(i in 1:7){
+  z <- qqnorm(datos[,i],plot.it = F) #Sólo toma las estadísticas
+  correlaciones[i] <- cor(z$x,z$y)
+}
+names(correlaciones) <- names(datos)
+correlaciones
+```
+
+Aunque las correlaciones se ven altas, hay que comparar contra un valor crítico. Esta prueba basada en el qq-plot y el coeficiente de correlación, es la **prueba de Filliben** (1975)
+
+```{r}
+library(ppcc) #Probability Plot Correlation Coefficient test
+prueba <- list(NULL)
+for(i in 1:7) prueba[[i]] <- ppccTest(datos[,i],"qnorm")
+prueba
+```
+De acuerdo a la prueba, ninguno de las variables parece tener distribución normal.
+
+Otra de las pruebas a usar es la prueba de Shapiro-Wilk
+```{r}
+swtest <- list(NULL)
+for(i in 1:7) swtest[[i]] <- shapiro.test(datos[,i])
+```
+En todos los casos se rechaza normalidad.
+
+Para detectar outliers, podemos ver los scatterplots de las variables, hacer diagramas de puntos y podemos calcular las distancias de Mahalanobis para cada caso
+
+```{r}
+pairs(datos)
+S <- var(datos)
+mu <- apply(datos,2,mean)
+mh <- apply(datos,1,mahalanobis,center=mu,cov=S)
+par(pty="s") #gráfica cuadrada
+qqplot(mh,qchisq((1:42-0.5)/42,7)) #chi-quantile plot
+abline(a=0,b=1)
+```
+No parece haber outliers relevantes.
+
+Lo que sigue es intentar transformar los datos a normalidad, usando la transformación de Box-Cox:
+```{r}
+library(EnvStats)
+boxcox1 <- list(NULL)
+for(i in 1:7)boxcox1[[i]] <- boxcox(lm(datos[,i] ~ 1))
+boxcox1
+```
+Las transformaciones optimas de manera marginal son:
+```{r}
+lambda <- unlist(lapply(boxcox1,function(x)x$lambda[which(x$objective == max(x$objective))]))
+datost <- matrix(0,nrow=42,ncol=7)
+for(i in 1:7){
+  datost[,i] <- if(lambda[i]!=0){
+                    (datos[,i]^lambda[i]-1)/lambda[i]} else {log(datos[,i])}
+}  
+```
+
+Podemos repetir las pruebas para revisar si la transformación ayuda. Por ejemplo:
+
+
+```{r}
+swtest <- list(NULL)
+for(i in 1:7) swtest[[i]] <- shapiro.test(datost[,i])
+swtest
+```
+
+2. Analizar datos en T46.DAT y hacer las transformaciones necesarias de ser posible para normalidad multivariada, correspondientes a datos de perfiles psicológicos aplicados a adolescentes peruanos (edades de 15 a 17). Los datos corresponden a:
+- Indep: score de independencia 
+- Supp: score de soporte emocional
+- Benev: score de benevolencia
+- Conform: score de conformidad
+- Lider: score de liderzgo
+- Gen: género (1=H)
+- Socio: status socieconómico
