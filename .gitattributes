@@ -1,5 +1,6 @@
 *.html linguist-vendored
 *.HTML linguist-vendored
+*.htm linguist-vendored
 *.Rmd linguist-language=R
 *.rmd linguist-language=R
 *.html linguist-detectable=false
